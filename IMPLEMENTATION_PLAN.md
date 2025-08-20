@@ -14,7 +14,8 @@
 ### 2.1 OS Context Menu Integration
 - [x] Implement moss:// deep link protocol for receiving folder paths
 - [x] Add handler to process deep link publish requests  
-- [ ] Create Automator Quick Action for Finder context menu
+- [x] Create automatic Automator Quick Action installation
+- [x] Programmatically generate .workflow bundle with proper plist structure
 - [ ] Test complete integration workflow
 - [ ] Add file system scanning (markdown, html, images)
 - [ ] Create basic project structure detection
@@ -79,29 +80,20 @@ walkdir = "2.4"                 # Directory traversal
 
 ---
 
-## Automator Quick Action Setup (macOS)
+## ✅ Automatic Finder Integration (macOS)
 
-To complete the Finder integration, create this Quick Action manually:
+The Quick Action is now **automatically installed** when Moss first launches:
 
-1. **Open Automator** → New → Quick Action
-2. **Configure workflow:**
-   - "Workflow receives current" → **folders**
-   - "in" → **Finder**
-3. **Add "Run Shell Script" action:**
-   ```bash
-   # Get the selected folder path
-   folder_path="$1"
+1. **Automatic Installation:** First time the app starts, it creates:
+   - `~/Library/Services/Publish to Web.workflow` bundle
+   - Proper Info.plist with bundle identifier
+   - Complete Automator workflow with shell script action
    
-   # URL encode the path
-   encoded_path=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$folder_path'))")
-   
-   # Open the moss:// deep link
-   open "moss://publish?path=$encoded_path"
-   ```
-4. **Save as:** "Publish to Web"
-5. **Enable in System Settings** → Extensions → Finder → "Publish to Web"
+2. **Zero Configuration:** No manual setup required
 
 **Usage:** Right-click any folder in Finder → Quick Actions → "Publish to Web"
+
+The workflow calls `moss://publish?path=/encoded/folder/path` which triggers site generation.
 
 ---
 

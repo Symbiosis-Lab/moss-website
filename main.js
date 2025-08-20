@@ -34,6 +34,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.log('No deep link on startup (this is normal)')
   }
 
+  // Check if this is first launch - install Finder integration
+  try {
+    console.log('🔧 Checking Finder integration...')
+    const integrationResult = await invoke('install_finder_integration')
+    console.log('✅ Finder integration:', integrationResult)
+  } catch (error) {
+    console.error('❌ Failed to install Finder integration:', error)
+  }
+
   // TODO: Settings UI will be implemented here
 })
 

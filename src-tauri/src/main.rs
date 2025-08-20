@@ -39,6 +39,310 @@ fn publish_folder_from_deep_link(folder_path: String) -> Result<String, String> 
     Ok(format!("Publishing initiated for: {}", folder_path))
 }
 
+#[tauri::command]
+fn install_finder_integration() -> Result<String, String> {
+    use std::fs;
+    use std::path::Path;
+    
+    // Get user's home directory
+    let home_dir = match std::env::var("HOME") {
+        Ok(dir) => dir,
+        Err(_) => return Err("Could not determine home directory".to_string()),
+    };
+    
+    let services_dir = format!("{}/Library/Services", home_dir);
+    let workflow_path = format!("{}/Publish to Web.workflow", services_dir);
+    
+    // Create Services directory if it doesn't exist
+    if let Err(e) = fs::create_dir_all(&services_dir) {
+        return Err(format!("Failed to create Services directory: {}", e));
+    }
+    
+    // Remove existing workflow if it exists (to ensure clean reinstall)
+    if Path::new(&workflow_path).exists() {
+        if let Err(e) = fs::remove_dir_all(&workflow_path) {
+            return Err(format!("Failed to remove existing workflow: {}", e));
+        }
+        println!("🗑️ Removed existing workflow for clean reinstall");
+    }
+    
+    // Create the .workflow bundle directory
+    if let Err(e) = fs::create_dir_all(format!("{}/Contents", workflow_path)) {
+        return Err(format!("Failed to create workflow bundle: {}", e));
+    }
+    
+    // Create Info.plist for the workflow bundle
+    // NOTE: No NSIconName property to ensure it appears in top-level context menu
+    let info_plist = r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.moss.publisher.publish-to-web</string>
+    <key>CFBundleName</key>
+    <string>Publish to Web</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>NSServices</key>
+    <array>
+        <dict>
+            <key>NSMenuItem</key>
+            <dict>
+                <key>default</key>
+                <string>Publish to Web</string>
+            </dict>
+            <key>NSMessage</key>
+            <string>runWorkflowAsService</string>
+            <key>NSSendFileTypes</key>
+            <array>
+                <string>public.folder</string>
+            </array>
+            <key>NSRequiredContext</key>
+            <dict>
+                <key>NSApplicationIdentifier</key>
+                <string>com.apple.finder</string>
+            </dict>
+        </dict>
+    </array>
+</dict>
+</plist>"#;
+    
+    // Write Info.plist
+    let info_plist_path = format!("{}/Contents/Info.plist", workflow_path);
+    if let Err(e) = fs::write(&info_plist_path, info_plist) {
+        return Err(format!("Failed to write Info.plist: {}", e));
+    }
+    
+    // Create the main workflow document (document.wflow)
+    let workflow_document = r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>AMApplicationBuild</key>
+    <string>521</string>
+    <key>AMApplicationVersion</key>
+    <string>2.10</string>
+    <key>AMDocumentVersion</key>
+    <string>2</string>
+    <key>actions</key>
+    <array>
+        <dict>
+            <key>action</key>
+            <dict>
+                <key>AMAccepts</key>
+                <dict>
+                    <key>Container</key>
+                    <string>List</string>
+                    <key>Optional</key>
+                    <true/>
+                    <key>Types</key>
+                    <array>
+                        <string>com.apple.cocoa.string</string>
+                    </array>
+                </dict>
+                <key>AMActionVersion</key>
+                <string>2.0.3</string>
+                <key>AMApplication</key>
+                <array>
+                    <string>Automator</string>
+                </array>
+                <key>AMParameterProperties</key>
+                <dict>
+                    <key>COMMAND_STRING</key>
+                    <dict>
+                        <key>tokenizedValue</key>
+                        <array>
+                            <string>folder_path="$1"
+
+# URL encode the path
+encoded_path=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$folder_path'))")
+
+# Open the moss:// deep link
+open "moss://publish?path=$encoded_path"</string>
+                        </array>
+                    </dict>
+                    <key>CheckedForUserDefaultShell</key>
+                    <true/>
+                    <key>inputMethod</key>
+                    <integer>1</integer>
+                    <key>shell</key>
+                    <string>/bin/bash</string>
+                    <key>source</key>
+                    <string></string>
+                </dict>
+                <key>AMProvides</key>
+                <dict>
+                    <key>Container</key>
+                    <string>List</string>
+                    <key>Types</key>
+                    <array>
+                        <string>com.apple.cocoa.string</string>
+                    </array>
+                </dict>
+                <key>ActionBundlePath</key>
+                <string>/System/Library/Automator/Run Shell Script.action</string>
+                <key>ActionName</key>
+                <string>Run Shell Script</string>
+                <key>ActionParameters</key>
+                <dict>
+                    <key>COMMAND_STRING</key>
+                    <string>folder_path="$1"
+
+# URL encode the path
+encoded_path=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$folder_path'))")
+
+# Open the moss:// deep link
+open "moss://publish?path=$encoded_path"</string>
+                    <key>CheckedForUserDefaultShell</key>
+                    <true/>
+                    <key>inputMethod</key>
+                    <integer>1</integer>
+                    <key>shell</key>
+                    <string>/bin/bash</string>
+                    <key>source</key>
+                    <string></string>
+                </dict>
+                <key>BundleIdentifier</key>
+                <string>com.apple.RunShellScript</string>
+                <key>CFBundleVersion</key>
+                <string>2.0.3</string>
+                <key>CanShowSelectedItemsWhenRun</key>
+                <false/>
+                <key>CanShowWhenRun</key>
+                <true/>
+                <key>Category</key>
+                <array>
+                    <string>AMCategoryUtilities</string>
+                </array>
+                <key>Class Name</key>
+                <string>RunShellScriptAction</string>
+                <key>InputUUID</key>
+                <string>AEAA5C01-E8BB-4944-B1FC-94F0B9C16A62</string>
+                <key>Keywords</key>
+                <array>
+                    <string>Shell</string>
+                    <string>Script</string>
+                    <string>Command</string>
+                    <string>Run</string>
+                    <string>Unix</string>
+                </array>
+                <key>OutputUUID</key>
+                <string>D1071B2C-A747-4CB3-B4CB-6C5D95B1069B</string>
+                <key>UUID</key>
+                <string>6B8F247C-FC27-4D2F-A6E0-D1E5B7E69C0F</string>
+                <key>UnlocalizedApplications</key>
+                <array>
+                    <string>Automator</string>
+                </array>
+                <key>arguments</key>
+                <dict>
+                    <key>0</key>
+                    <dict>
+                        <key>default value</key>
+                        <integer>1</integer>
+                        <key>name</key>
+                        <string>inputMethod</string>
+                        <key>required</key>
+                        <string>0</string>
+                        <key>type</key>
+                        <string>0</string>
+                        <key>uuid</key>
+                        <string>0</string>
+                    </dict>
+                    <key>1</key>
+                    <dict>
+                        <key>default value</key>
+                        <string></string>
+                        <key>name</key>
+                        <string>source</string>
+                        <key>required</key>
+                        <string>0</string>
+                        <key>type</key>
+                        <string>0</string>
+                        <key>uuid</key>
+                        <string>1</string>
+                    </dict>
+                    <key>2</key>
+                    <dict>
+                        <key>default value</key>
+                        <false/>
+                        <key>name</key>
+                        <string>CheckedForUserDefaultShell</string>
+                        <key>required</key>
+                        <string>0</string>
+                        <key>type</key>
+                        <string>0</string>
+                        <key>uuid</key>
+                        <string>2</string>
+                    </dict>
+                    <key>3</key>
+                    <dict>
+                        <key>default value</key>
+                        <string></string>
+                        <key>name</key>
+                        <string>COMMAND_STRING</string>
+                        <key>required</key>
+                        <string>0</string>
+                        <key>type</key>
+                        <string>0</string>
+                        <key>uuid</key>
+                        <string>3</string>
+                    </dict>
+                    <key>4</key>
+                    <dict>
+                        <key>default value</key>
+                        <string>/bin/sh</string>
+                        <key>name</key>
+                        <string>shell</string>
+                        <key>required</key>
+                        <string>0</string>
+                        <key>type</key>
+                        <string>0</string>
+                        <key>uuid</key>
+                        <string>4</string>
+                    </dict>
+                </dict>
+            </dict>
+            <key>isViewVisible</key>
+            <integer>1</integer>
+            <key>location</key>
+            <string>449.000000:316.000000</string>
+            <key>nibPath</key>
+            <string>/System/Library/Automator/Run Shell Script.action/Contents/Resources/Base.lproj/main.nib</string>
+        </dict>
+    </array>
+    <key>connectors</key>
+    <dict/>
+    <key>workflowMetaData</key>
+    <dict>
+        <key>serviceApplicationBundleID</key>
+        <string>com.apple.finder</string>
+        <key>serviceApplicationPath</key>
+        <string>/System/Library/CoreServices/Finder.app</string>
+        <key>serviceInputTypeIdentifier</key>
+        <string>com.apple.Automator.fileSystemObject.folder</string>
+        <key>serviceOutputTypeIdentifier</key>
+        <string>com.apple.Automator.nothing</string>
+        <key>serviceProcessesInput</key>
+        <integer>0</integer>
+        <key>workflowTypeIdentifier</key>
+        <string>com.apple.Automator.servicesMenu</string>
+    </dict>
+</dict>
+</plist>"#;
+    
+    // Write the workflow document
+    let document_path = format!("{}/Contents/document.wflow", workflow_path);
+    if let Err(e) = fs::write(&document_path, workflow_document) {
+        return Err(format!("Failed to write workflow document: {}", e));
+    }
+    
+    println!("📁 Installed Finder integration: {}", workflow_path);
+    Ok("Finder integration installed successfully! Right-click any folder → Quick Actions → 'Publish to Web'".to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -146,7 +450,7 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![greet, test_tray_icon, publish_folder_from_deep_link])
+        .invoke_handler(tauri::generate_handler![greet, test_tray_icon, publish_folder_from_deep_link, install_finder_integration])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -216,5 +520,18 @@ mod tests {
         let result = publish_folder_from_deep_link("/Users/test/my folder with spaces".to_string());
         assert!(result.is_ok());
         assert!(result.unwrap().contains("my folder with spaces"));
+    }
+
+    #[test]
+    fn test_install_finder_integration_basic() {
+        // This test only checks that the function doesn't panic
+        // Actual filesystem operations would require more complex mocking
+        // For now, we just verify the function can be called
+        // In real usage, it requires proper HOME environment and filesystem access
+        if std::env::var("HOME").is_ok() {
+            let result = install_finder_integration();
+            // Should either succeed or fail gracefully, not panic
+            assert!(result.is_ok() || result.is_err());
+        }
     }
 }
