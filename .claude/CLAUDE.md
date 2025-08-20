@@ -12,6 +12,15 @@ Documents are mostly for human, especially developers. So speak their language, 
 
 # Development Guidelines
 
+## Manual Testing Communication
+
+When asking for manual testing:
+- **Focus on user-observable behaviors**, not implementation details
+- **Describe what the user will see/experience**, not what code was written
+- **Use action → result format**: "Click X → See Y"
+- **Avoid technical jargon** unless necessary for testing
+- **Be specific about visual/behavioral expectations**
+
 ## Philosophy
 
 ### Core Beliefs

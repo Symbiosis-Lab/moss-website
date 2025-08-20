@@ -5,8 +5,18 @@
 **Desktop Application**
 - Tauri v2 (Rust backend, web frontend)
 - Menu bar/system tray only (no main window)
-- Native OS integration for right-click menu
+- Native OS integration for right-click context menu on folders
 - ~15MB binary size target
+
+**System Tray Menu**
+- Settings (preferences, configuration)
+- About
+- Quit
+
+**Folder Context Menu Integration**
+- "Publish to Web" option when right-clicking any folder
+- Triggers site generation and deployment workflow
+- No folder selection dialog needed - uses the clicked folder
 
 **Static Site Generator**
 - Custom Rust implementation

@@ -19,4 +19,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   } catch (error) {
     console.error('Backend connection failed:', error)
   }
+
+  // TODO: Settings UI will be implemented here
+  // Publishing happens via OS context menu, not from this app window
 })

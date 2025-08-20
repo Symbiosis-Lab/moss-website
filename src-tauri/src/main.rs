@@ -26,6 +26,9 @@ fn test_tray_icon(app: tauri::AppHandle) -> Result<String, String> {
     }
 }
 
+// Publishing will be triggered from OS context menu, not from tray
+// TODO: Implement handler for OS-level right-click context menu integration
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -40,15 +43,14 @@ pub fn run() {
             };
 
             // Create menu items
-            let show_i = MenuItem::with_id(app, "show", "Show App", true, None::<&str>)?;
-            let publish_i = MenuItem::with_id(app, "publish", "Publish Folder...", true, None::<&str>)?;
+            let settings_i = MenuItem::with_id(app, "settings", "Settings...", true, None::<&str>)?;
+            let about_i = MenuItem::with_id(app, "about", "About Moss", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
 
             // Build menu with separators
             let menu = MenuBuilder::new(app)
-                .item(&show_i)
-                .item(&PredefinedMenuItem::separator(app)?)
-                .item(&publish_i)
+                .item(&settings_i)
+                .item(&about_i)
                 .item(&PredefinedMenuItem::separator(app)?)
                 .item(&quit_i)
                 .build()?;
@@ -78,14 +80,17 @@ pub fn run() {
                 .menu(&menu)
                 .on_menu_event(move |app, event| {
                     match event.id().as_ref() {
-                        "show" => {
+                        "settings" => {
+                            // TODO: Open settings window
+                            println!("⚙️ Settings menu item clicked");
                             if let Some(window) = app.get_webview_window("main") {
                                 let _ = window.show();
                                 let _ = window.set_focus();
                             }
                         }
-                        "publish" => {
-                            // TODO: Implement folder selection and publishing
+                        "about" => {
+                            // TODO: Show about dialog
+                            println!("ℹ️ About menu item clicked");
                         }
                         "quit" => {
                             std::process::exit(0);

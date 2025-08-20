@@ -11,8 +11,9 @@
 **Goal**: Implement the essential "folder → website" transformation
 **Success Criteria**: User can select folder, generate static site, and publish to moss.pub
 
-### 2.1 Folder Selection & Processing
-- [ ] Implement folder dialog when "Publish Folder" clicked
+### 2.1 OS Context Menu Integration
+- [ ] Register "Publish to Web" in macOS Finder context menu
+- [ ] Handle folder path passed from OS when right-clicked
 - [ ] Add file system scanning (markdown, html, images)
 - [ ] Create basic project structure detection
 - [ ] Add ~/.moss/config.toml initialization
