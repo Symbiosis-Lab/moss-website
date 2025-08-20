@@ -36,6 +36,11 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
+            // Prevent app from exiting when window is closed
+            // We want to stay in system tray
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            
             use tauri::{
                 image::Image,
                 menu::{MenuBuilder, MenuItem, PredefinedMenuItem},
@@ -81,9 +86,9 @@ pub fn run() {
                 .on_menu_event(move |app, event| {
                     match event.id().as_ref() {
                         "settings" => {
-                            // TODO: Open settings window
                             println!("⚙️ Settings menu item clicked");
                             if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.set_title("Moss Settings");
                                 let _ = window.show();
                                 let _ = window.set_focus();
                             }
@@ -113,6 +118,19 @@ pub fn run() {
                 Err(e) => {
                     eprintln!("Failed to create tray icon: {:?}", e);
                 }
+            }
+
+            // Handle window close event - just hide instead of quitting
+            if let Some(window) = app.get_webview_window("main") {
+                let window_clone = window.clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        // Prevent default close behavior
+                        api.prevent_close();
+                        // Just hide the window instead
+                        let _ = window_clone.hide();
+                    }
+                });
             }
 
             Ok(())
