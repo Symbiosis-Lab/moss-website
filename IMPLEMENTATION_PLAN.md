@@ -11,12 +11,13 @@
 **Goal**: Implement the essential "folder → website" transformation
 **Success Criteria**: User can select folder, generate static site, and publish to moss.pub
 
-### 2.1 OS Context Menu Integration
+### 2.1 OS Context Menu Integration ✅ COMPLETED
 - [x] Implement moss:// deep link protocol for receiving folder paths
 - [x] Add handler to process deep link publish requests  
 - [x] Create automatic Automator Quick Action installation
 - [x] Programmatically generate .workflow bundle with proper plist structure
-- [ ] Test complete integration workflow
+- [x] Fix context menu placement (top-level, not Quick Actions submenu)
+- [x] Test complete integration workflow - VERIFIED WORKING
 - [ ] Add file system scanning (markdown, html, images)
 - [ ] Create basic project structure detection
 - [ ] Add ~/.moss/config.toml initialization
@@ -39,7 +40,7 @@
 **Success Criteria**: <5 minute first publish, no configuration required
 
 ### 3.1 Interface Improvements
-- [ ] Design proper moss-themed tray icon
+- [x] Design proper moss-themed tray icon (green plant - perfect for moss theme)
 - [ ] Improve menu structure and tooltips
 - [ ] Add "Recently Published" submenu
 - [ ] Implement notification system for publish status
@@ -91,9 +92,96 @@ The Quick Action is now **automatically installed** when Moss first launches:
    
 2. **Zero Configuration:** No manual setup required
 
-**Usage:** Right-click any folder in Finder → Quick Actions → "Publish to Web"
+**Usage:** Right-click any folder in Finder → "Publish to Web" (appears directly in context menu)
 
 The workflow calls `moss://publish?path=/encoded/folder/path` which triggers site generation.
+
+---
+
+## Key Implementation Insights & Learnings
+
+### macOS Finder Integration Challenges Solved
+
+**Context Menu Placement:**
+- Automator Quick Actions with `NSIconName` property force items into "Quick Actions" submenu
+- **Solution:** Remove `NSIconName` from Info.plist and use proper `NSServices` configuration
+- **Result:** "Publish to Web" appears at top level like Google Drive's context menu items
+
+**Deep Link Protocol Requirements:**
+- macOS deep links only work in built/installed apps, not during `tauri dev`
+- **Critical:** Must test with `npm run tauri build` and install in `/Applications`
+- Deep link protocol registration requires specific plugin configuration in `tauri.conf.json`
+
+**Bundle Identifier Best Practices:**
+- Never end with `.app` (conflicts with macOS app bundle extension)
+- Use reverse domain notation: `com.moss.publisher` (not `com.moss.app`)
+- Workflow bundle identifiers should match: `com.moss.publisher.publish-to-web`
+
+**Icon Generation Issues:**
+- Tauri template sometimes ships with corrupted/empty `.icns` files
+- **Solution:** Always regenerate icons using `npx @tauri-apps/cli icon src-tauri/icons/icon.png`
+- Clean `src-tauri/target/` directory after icon regeneration to force refresh
+
+### Tauri-Specific Development Patterns
+
+**Menu Bar App Architecture:**
+- Set `ActivationPolicy::Accessory` on macOS to prevent dock icon
+- Intercept window close events to hide (not quit) the app
+- Essential for menu bar utilities that should persist in background
+
+**Testing Strategy:**
+- Backend tests for pure logic (Rust functions)
+- Integration tests for mocked frontend-backend communication
+- Manual testing required for OS-level integrations (context menus, deep links)
+
+**File System Operations:**
+- Always use absolute paths in Tauri commands
+- Create directories recursively with `fs::create_dir_all`
+- Clean up existing files before installation to ensure fresh state
+- Use `std::env::var("HOME")` for cross-user compatibility in macOS paths
+
+**Workflow Bundle Creation:**
+- `.workflow` files are actually bundles (directories) with `Contents/` subdirectory
+- Require both `Info.plist` (bundle metadata) and `document.wflow` (workflow definition)
+- Must include proper `NSServices` array in Info.plist for Services menu integration
+- Shell script actions need specific parameter structure and UUIDs for Automator compatibility
+
+### User Experience Insights
+
+**Zero-Configuration Philosophy:**
+- Manual setup steps are unacceptable UX for consumer tools
+- Automatic installation must happen transparently on first launch
+- Users expect behavior similar to Google Drive, Dropbox (top-level context menu)
+
+**Error Communication:**
+- Focus on user-observable behaviors when describing testing steps
+- Avoid implementation details in user-facing messaging
+- Always provide clear "what should happen" expectations
+
+**Development Workflow Best Practices:**
+- Never commit partial implementations - only complete, testable features
+- Manual verification required before committing OS integration features
+- Amend commits to include documentation updates rather than separate commits
+- Build and test the complete user journey, not just individual components
+
+### Future Development Considerations
+
+**Static Site Generation Next:**
+- Folder scanning with `walkdir` crate
+- Markdown processing with `pulldown-cmark`
+- Template system with `tera` engine
+- Asset optimization pipeline
+
+**Cross-Platform Context Menus:**
+- Windows: Shell extensions (more complex than macOS)
+- Linux: File manager specific (Nautilus, Dolphin, etc.)
+- Each platform requires different integration approach
+
+**URL Encoding & Path Handling:**
+- Folder paths with spaces require URL encoding in deep link URLs
+- Use `python3 -c "import urllib.parse; print(urllib.parse.quote('$path'))"` in shell scripts
+- Decode with `decodeURIComponent()` in JavaScript before passing to Rust backend
+- Always validate paths are non-empty before processing
 
 ---
 

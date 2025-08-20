@@ -6,7 +6,7 @@ When discussing technical issues, adhere to the Develoment Guidelines below. Whe
 
 When discussing product issues, think like a product manger. Focus on market fit, usability and route to grow user base. Paying specially attention to the user habit in US and China, while considering other growing markets.
 
-Documents are mostly for human, especially developers. So speak their language, and keep them concise. But also keep it philosophical, poetic and intriguing, as they should be powerful to all humans. Don't spell out these concepts - incorporate them in the way you think and the style you write, and make them the effect in the reader's subconsciousness.
+Documents are mostly for human, especially developers. So speak their language, and keep the documents concise. But also keep them philosophical, poetic and intriguing, as they should be powerful to all humans. Don't spell out these concepts - incorporate them in the way you think and the style you write, infusing the ideas in the reader's mind.
 
 ---
 
@@ -15,6 +15,7 @@ Documents are mostly for human, especially developers. So speak their language, 
 ## Manual Testing Communication
 
 When asking for manual testing:
+
 - **Focus on user-observable behaviors**, not implementation details
 - **Describe what the user will see/experience**, not what code was written
 - **Use action → result format**: "Click X → See Y"
