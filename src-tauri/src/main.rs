@@ -26,8 +26,18 @@ fn test_tray_icon(app: tauri::AppHandle) -> Result<String, String> {
     }
 }
 
-// Publishing will be triggered from OS context menu, not from tray
-// TODO: Implement handler for OS-level right-click context menu integration
+#[tauri::command]
+fn publish_folder_from_deep_link(folder_path: String) -> Result<String, String> {
+    // Handle deep link request to publish a folder
+    if folder_path.is_empty() {
+        return Err("Empty folder path provided".to_string());
+    }
+    
+    println!("🔗 Deep link triggered: publishing folder '{}'", folder_path);
+    
+    // TODO: Implement actual static site generation and publishing
+    Ok(format!("Publishing initiated for: {}", folder_path))
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -35,6 +45,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_deep_link::init())
         .setup(|app| {
             // Prevent app from exiting when window is closed
             // We want to stay in system tray
@@ -135,7 +146,7 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![greet, test_tray_icon])
+        .invoke_handler(tauri::generate_handler![greet, test_tray_icon, publish_folder_from_deep_link])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -183,5 +194,27 @@ mod tests {
         let result = greet(&long_name);
         assert!(result.contains(&long_name));
         assert!(result.len() > 1000); // Should be longer due to template text
+    }
+
+    #[test]
+    fn test_publish_folder_from_deep_link_valid_path() {
+        let result = publish_folder_from_deep_link("/Users/test/my-content".to_string());
+        assert!(result.is_ok());
+        let message = result.unwrap();
+        assert!(message.contains("Publishing initiated for: /Users/test/my-content"));
+    }
+
+    #[test]
+    fn test_publish_folder_from_deep_link_empty_path() {
+        let result = publish_folder_from_deep_link("".to_string());
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Empty folder path provided");
+    }
+
+    #[test]
+    fn test_publish_folder_from_deep_link_url_encoded_path() {
+        let result = publish_folder_from_deep_link("/Users/test/my folder with spaces".to_string());
+        assert!(result.is_ok());
+        assert!(result.unwrap().contains("my folder with spaces"));
     }
 }

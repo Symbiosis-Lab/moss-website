@@ -26,6 +26,7 @@
     "vitest": "^3.2.4"
   },
   "dependencies": {
+    "@tauri-apps/plugin-deep-link": "^2.4.1",
     "@tauri-apps/plugin-dialog": "^2.3.3"
   }
 }

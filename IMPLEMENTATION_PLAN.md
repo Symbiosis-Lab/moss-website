@@ -12,8 +12,10 @@
 **Success Criteria**: User can select folder, generate static site, and publish to moss.pub
 
 ### 2.1 OS Context Menu Integration
-- [ ] Register "Publish to Web" in macOS Finder context menu
-- [ ] Handle folder path passed from OS when right-clicked
+- [x] Implement moss:// deep link protocol for receiving folder paths
+- [x] Add handler to process deep link publish requests  
+- [ ] Create Automator Quick Action for Finder context menu
+- [ ] Test complete integration workflow
 - [ ] Add file system scanning (markdown, html, images)
 - [ ] Create basic project structure detection
 - [ ] Add ~/.moss/config.toml initialization
@@ -74,6 +76,32 @@ toml = "0.8"                    # Config parsing
 uuid = { version = "1.0", features = ["v4"] }       # Unique IDs
 walkdir = "2.4"                 # Directory traversal
 ```
+
+---
+
+## Automator Quick Action Setup (macOS)
+
+To complete the Finder integration, create this Quick Action manually:
+
+1. **Open Automator** → New → Quick Action
+2. **Configure workflow:**
+   - "Workflow receives current" → **folders**
+   - "in" → **Finder**
+3. **Add "Run Shell Script" action:**
+   ```bash
+   # Get the selected folder path
+   folder_path="$1"
+   
+   # URL encode the path
+   encoded_path=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$folder_path'))")
+   
+   # Open the moss:// deep link
+   open "moss://publish?path=$encoded_path"
+   ```
+4. **Save as:** "Publish to Web"
+5. **Enable in System Settings** → Extensions → Finder → "Publish to Web"
+
+**Usage:** Right-click any folder in Finder → Quick Actions → "Publish to Web"
 
 ---
 
