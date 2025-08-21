@@ -42,7 +42,7 @@ When asking for manual testing:
 
 ### 1. Planning & Staging
 
-Break complex work into 3-5 stages. Document in `IMPLEMENTATION_PLAN.md`:
+Break complex work into 3-5 stages. Document in `docs/developer/implementation-plan.md`:
 
 ```markdown
 ## Stage N: [Name]
@@ -54,7 +54,6 @@ Break complex work into 3-5 stages. Document in `IMPLEMENTATION_PLAN.md`:
 ```
 
 - Update status as you progress
-- Remove file when all stages are done
 
 ### 2. Implementation Flow
 
@@ -165,6 +164,49 @@ When multiple valid approaches exist, choose based on:
 - Use existing test utilities/helpers
 - Tests should be deterministic
 
+## Problem-Solving Insights
+
+### Root Cause Analysis
+
+**Distinguish Problems from Solutions:**
+- When users say "icon doesn't show", the real issue may be system de-prioritization, not icon design
+- **Always ask "what is the fundamental constraint?"** before proposing fixes
+- User complaints about symptoms often mask deeper architectural issues
+
+**"Find the Logically Shortest Path":**
+- Don't work around system limitations with UI band-aids
+- Address root causes at the appropriate system level  
+- Example: Fix tray icon priority detection, don't redesign icons or add warnings
+
+**When Stuck, Question the Approach:**
+- If you try 3 different implementations of the same concept, the concept itself may be wrong
+- Step back and ask: "Are we solving the right problem?"
+- Sometimes the solution is to remove complexity, not add it
+
+### API Design Philosophy
+
+**"Simple to Complex, Never Reverse":**
+- Start with minimal viable surface area - easier to add than remove
+- Only add complexity when proven necessary through actual usage
+- Refactoring towards simplicity is always valid, expansion requires justification
+
+**Test File Lifecycle Management:**
+- Consolidate duplicate test functionality instead of maintaining parallel implementations  
+- Remove test files that duplicate main application capabilities
+- Keep file structure compact and self-explanatory - extra files create cognitive load
+
+### Compilation Error Patterns
+
+**Rust/System API Integration:**
+- macOS accessibility APIs require careful type handling (`*const __CFString` vs `&str`)
+- When in doubt, simplify to get compilation working first, then enhance
+- Complex FFI integration can be replaced with simplified heuristics for initial implementation
+
+**Development Workflow:**
+- Always test compilation before moving to complex logic
+- Use `cargo build` and `cargo test` as quick validation checkpoints  
+- Background processes can timeout - use appropriate timeout values for lengthy compilation
+
 ## Important Reminders
 
 **NEVER**:
@@ -173,6 +215,7 @@ When multiple valid approaches exist, choose based on:
 - Disable tests instead of fixing them
 - Commit code that doesn't compile
 - Make assumptions - verify with existing code
+- Work around fundamental problems with UI workarounds
 
 **ALWAYS**:
 
@@ -180,3 +223,4 @@ When multiple valid approaches exist, choose based on:
 - Update plan documentation as you go
 - Learn from existing implementations
 - Stop after 3 failed attempts and reassess
+- Question whether you're solving the right problem when repeatedly stuck

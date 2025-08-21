@@ -163,6 +163,54 @@ The workflow calls `moss://publish?path=/encoded/folder/path` which triggers sit
 - Manual verification required before committing OS integration features
 - Amend commits to include documentation updates rather than separate commits
 - Build and test the complete user journey, not just individual components
+- **Implementation optimizations are not commits** - refactoring, dependency removal, code cleanup
+- Only commit when adding/fixing user-facing functionality or fixing bugs
+
+**Dependency Management Philosophy:**
+- **Avoid external dependencies when possible** - especially for simple operations
+- **Consider bundle size impact** - every dependency increases distribution size
+- **Prefer native solutions** - shell commands over Python/Node.js for simple tasks
+- **Self-contained is better** - reduce failure points and system requirements
+- Example: Use `sed 's/ /%20/g'` instead of `python3 urllib.parse` for URL encoding
+
+### System Tray Visibility Detection
+
+**macOS Menu Bar Limitations:**
+- When too many icons exist, macOS de-prioritizes less important items
+- Icons can be "added" but become invisible (hidden off-screen)
+- No official NSStatusItem API to detect this hidden state
+
+**Three-State Detection System:**
+- `NotAdded`: Tray icon creation failed completely
+- `AddedButHidden`: Icon exists but is hidden due to space constraints  
+- `Visible`: Icon is actually visible in menu bar
+
+**Implementation Approach:**
+- Basic detection: Check if `app.tray_by_id()` returns valid handle
+- Advanced detection requires macOS accessibility APIs (`AXUIElementCopyElementAtPosition`)
+- Full implementation needs position detection and bundle ID matching
+- **Critical insight**: Focus on detection, not workarounds (changing icons, warnings)
+
+**User Experience Philosophy:**
+- "Find the logically shortest path" - detect and fix priority, don't work around
+- Avoid UI band-aids when the real issue is system-level integration
+- Users expect system-level problems to have system-level solutions
+
+### API Design Evolution
+
+**Simplicity Principle: "Simple to Complex, Never Reverse"**
+- Start with minimal viable API surface area
+- Refactored from 4 functions to 3 essential commands:
+  - `publish_folder` - Core functionality
+  - `install_finder_integration` - OS integration  
+  - `get_system_status` - Diagnostic information
+- Only add complexity when proven necessary through real usage
+
+**Testing Strategy Refinement:**
+- Remove duplicate test files that serve same purpose
+- Keep file structure compact and self-explanatory
+- Consolidate redundant functionality rather than maintaining parallel implementations
+- Example: Removed `test-status.html` and `test-tray.js` as they duplicated main app functionality
 
 ### Future Development Considerations
 
