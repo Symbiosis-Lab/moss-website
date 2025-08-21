@@ -1,95 +1,38 @@
-# Moss Strategic Overview
+# Moss Documentation
 
-> Building slowly, growing inevitably
+> Building infrastructure for the next generation of the web
 
-## Core Strategy
+## Documentation Structure
 
-**Build first, fund second.** We have runway to build without compromise. Grants become tools for validation and community access, not survival. Content initiatives demonstrate value without changing architecture. Growth comes from creating cultural moments, not marketing campaigns.
+This documentation is organized into two main areas:
 
-## The Plan
+### 📈 [Strategic Documentation](./strategic/)
 
-### Year 1: Foundation
+Business planning, growth strategy, and organizational direction.
 
-**Months 1-6:** Build core Moss, reach 100 users  
-**Months 7-12:** Launch ecosystem, reach 1000 users
+- **Strategic Overview** - Vision, principles, and success metrics
+- **Growth Strategy** - User acquisition and community building
+- **Funding Strategy** - Grant timeline and revenue planning
+- **Financial Planning** - Budget breakdown and runway analysis
+- **NYC Campaigns** - Content experiments and cultural moments
 
-### Year 2: Growth
+### 🔧 [Developer Documentation](./developer/)
 
-Scale to sustainable revenue, reduce grant dependence
+Technical implementation, architecture, and contributor guides.
 
-### Year 3: Ecosystem
+- **Developer Guide** - File structure, API reference, workflows
+- **Technical Architecture** - System design and technology decisions  
+- **Development Roadmap** - Technical milestones and implementation phases
 
-Self-sustaining infrastructure for the open web
+## Quick Navigation
 
-## Key Documents
+**For Contributors:**
+- Start with [Developer Documentation](./developer/) → [Developer Guide](./developer/developer-guide.md)
+- Review [Technical Architecture](./developer/technical-architecture.md) for design context
 
-**[Development Roadmap](./dev-roadmap.md)**
-
-- Technical milestones
-- Development phases
-- Architecture decisions
-
-**[Growth Strategy](./growth-strategy.md)**
-
-- User acquisition plan
-- Content strategy
-- Community building
-
-**[Funding Strategy](./funding-strategy.md)**
-
-- Grant timeline
-- Application principles
-- Revenue planning
-
-**[Financial Plan](./financial-plan.md)**
-
-- Budget breakdown
-- Revenue projections
-- Runway analysis
-
-**[NYC Campaigns](./nyc-brainstorm.md)**
-
-- Content experiments
-- Cultural moments
-- Testing methodology
-
-## Success Metrics
-
-### Technical
-
-- <5 minute first publish
-- <20MB binary size
-- Zero configuration
-
-### Growth
-
-- 1000+ users by month 12
-- 40% retention at month 3
-- Community plugins emerging
-
-### Financial
-
-- 12+ months runway always
-- Revenue growing faster than expenses
-- Grants <50% of budget
-
-## Principles We Hold
-
-1. **Local-first always** - Users own their data
-2. **Standards over invention** - Use existing protocols
-3. **Invisible infrastructure** - Should barely exist
-4. **Patient growth** - No growth hacking
-5. **Community ownership** - This belongs to everyone
-
-## What We're Building
-
-Not a startup. Not a platform. Not an exit.
-
-We're building infrastructure for the next generation of the web. Where creators own their work, readers find genuine voices, and the web becomes interesting again.
-
-One folder at a time. One site at a time. One creator at a time.
-
-Until the whole forest is green.
+**For Stakeholders:**  
+- Start with [Strategic Documentation](./strategic/) → [Strategic Overview](./strategic/README.md)
+- Review [Growth Strategy](./strategic/growth-strategy.md) and [Funding Strategy](./strategic/funding-strategy.md)
 
 ---
 

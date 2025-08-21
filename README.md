@@ -15,11 +15,11 @@ Like its namesake, Moss thrives in the spaces others overlook. It doesn't compet
 
 ## What It Is
 
-A tiny desktop app that turns any folder into a website. Right-click, publish, done.
+A tiny desktop app that turns any folder into a website. Right-click, publish, done. Then syndicate to social networks and channels of your choice.
 
 Your files stay on your computer. Your site lives on your domain. Your audience remains yours.
 
-## [Architecture](./docs/technical-architecture.md)
+## [Architecture](./docs/developer/technical-architecture.md)
 
 ```
 Local files → Moss → Static site → Your infrastructure
