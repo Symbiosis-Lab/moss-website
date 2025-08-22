@@ -272,6 +272,33 @@ get_system_status() -> Result<SystemInfo, Error>
 
 When simple functions become insufficient, **then** we refactor to sessions/polling/management.
 
+## Code Organization
+
+**Rust Codebase Structure**
+
+```
+src-tauri/src/
+├── main.rs           # ~100 lines - app setup only
+├── types.rs          # ~100 lines - data structures
+└── commands.rs       # ~400 lines - business logic
+```
+
+**File Responsibilities:**
+
+- **`main.rs`** - Tauri app setup, tray icon creation, event listeners, entry point
+- **`types.rs`** - All structs and enums (`ProjectStructure`, `SystemInfo`, `TrayVisibilityStatus`, etc.)
+- **`commands.rs`** - Tauri commands, file scanning, content analysis, system detection
+
+**Design Principles:**
+
+- Keep tests with the code they test (no separate test files)
+- Separate data from logic from app setup
+- Follow Rust conventions and idiomatic patterns
+- Maintain manageable file sizes (100-400 lines)
+- Self-explanatory file names that match their contents
+
+This structure balances maintainability with simplicity, avoiding over-engineering while keeping the codebase organized as it grows from the current single 1,300+ line file.
+
 ## Open Decisions
 
 - Template engine: Tera vs Handlebars

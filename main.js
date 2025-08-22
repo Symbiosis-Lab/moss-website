@@ -1,24 +1,17 @@
 document.addEventListener('DOMContentLoaded', async () => {
   console.log('Moss app loaded')
   
-  // Test the Tauri backend connection
+  // Get Tauri API functions
   const { invoke } = await import('@tauri-apps/api/core')
   const { getCurrent } = await import('@tauri-apps/plugin-deep-link')
   
+  // Test backend connection with actual commands
   try {
-    const greeting = await invoke('greet', { name: 'Moss' })
-    console.log('Backend connected:', greeting)
-    
-    // Test tray icon functionality
-    console.log('Testing tray icon...')
-    try {
-      const trayResult = await invoke('test_tray_icon')
-      console.log('✅ Tray icon test:', trayResult)
-    } catch (trayError) {
-      console.error('❌ Tray icon test failed:', trayError)
-    }
+    console.log('Testing backend connection...')
+    const systemStatus = await invoke('get_system_status')
+    console.log('✅ Backend connected:', systemStatus)
   } catch (error) {
-    console.error('Backend connection failed:', error)
+    console.error('❌ Backend connection failed:', error)
   }
 
   // Handle deep links (e.g., moss://publish?path=/path/to/folder)
@@ -60,8 +53,8 @@ async function handleDeepLink(url) {
         
         const { invoke } = await import('@tauri-apps/api/core')
         try {
-          const result = await invoke('publish_folder_from_deep_link', {
-            folderPath: decodeURIComponent(folderPath)
+          const result = await invoke('publish_folder', {
+            folder_path: decodeURIComponent(folderPath)
           })
           console.log('✅ Publish result:', result)
         } catch (error) {

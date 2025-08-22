@@ -8,6 +8,41 @@ When discussing product issues, think like a product manger. Focus on market fit
 
 Documents are mostly for human, especially developers. So speak their language, and keep the documents concise. But also keep them philosophical, poetic and intriguing, as they should be powerful to all humans. Don't spell out these concepts - incorporate them in the way you think and the style you write, infusing the ideas in the reader's mind.
 
+## Documentation Strategy
+
+When asked to document an idea:
+
+1. **Choose the right location** using the current file structure:
+   - **General good practices** → `.claude/CLAUDE.md`
+   - **Project-specific concepts** → `docs/` directory
+
+2. **Read the target file** to understand existing structure and style
+
+3. **Find the natural location** within that file to incorporate the new content
+
+4. **Rewrite organically** - integrate the idea naturally with surrounding text rather than just appending
+
+5. **Review for coherence** - read the entire file to ensure it remains concise and flows well in both content and style
+
+This approach maintains document quality and prevents fragmentation of related concepts across multiple files.
+
+## Insight Review Process
+
+When asked to review insights:
+
+1. **Look for unknown but useful ideas** - identify concepts you don't naturally follow but are valuable for current tasks
+
+2. **Source identification** - find these insights in:
+   - User commands and feedback
+   - Root causes of bugs discovered
+   - Conclusions from web searches and research
+
+3. **Focus on practical application** - prioritize insights that directly improve current work quality
+
+4. **Document for retention** - capture insights that tend to be forgotten under pressure but significantly impact outcomes
+
+This systematic review prevents losing valuable lessons learned during development cycles.
+
 ---
 
 # Development Guidelines
@@ -158,9 +193,25 @@ When multiple valid approaches exist, choose based on:
 
 ### Test Guidelines
 
-- Test behavior, not implementation
+**Test User Behavior, Not Implementation Details**
+
+- **Focus on user-observable outcomes** - what the user sees and experiences
+- **Test features, not code** - verify the application delivers promised functionality
+- **Avoid implementation coupling** - tests should survive refactoring without changes
+- **Example**: Test "app shows tray icon with menu" not "icon pixel data is correct"
+
+**Feature-Based Testing Strategy**
+- Identify core user features (not code modules)
+- Test each feature's complete user journey
+- Mock external dependencies, test internal behavior
+- Use descriptive test names that match user stories
+
+**Implementation vs Behavior Examples**
+- ❌ Bad: Test icon pixel arrangement, event parsing logic, data structure serialization
+- ✅ Good: Test tray icon appears, menu items work, Finder integration installs
+
 - One assertion per test when possible
-- Clear test names describing scenario
+- Clear test names describing user scenarios
 - Use existing test utilities/helpers
 - Tests should be deterministic
 

@@ -173,6 +173,21 @@ The workflow calls `moss://publish?path=/encoded/folder/path` which triggers sit
 - **Self-contained is better** - reduce failure points and system requirements
 - Example: Use `sed 's/ /%20/g'` instead of `python3 urllib.parse` for URL encoding
 
+### Code Organization Balance
+
+**Avoiding Over-Engineering at Early Stage:**
+- **1,300+ line single file** signals need for organization, but **10+ micro-files** creates cognitive overhead
+- **3-file split** matches natural boundaries: app setup (`main.rs`), data types (`types.rs`), business logic (`commands.rs`)
+- **Self-explanatory names** eliminate need for documentation about file purposes
+- **Tests with implementation** - move orphaned test files back to code they test
+- **Room to grow** - each file can expand to 300-400 lines before next split decision
+
+**Decision Framework:**
+- Split when navigation becomes difficult, not at arbitrary line counts
+- Respect project stage - MVP needs different organization than mature codebase
+- Follow existing patterns and conventions over abstract principles
+- Optimize for current team size and development velocity
+
 ### System Tray Visibility Detection
 
 **macOS Menu Bar Limitations:**
