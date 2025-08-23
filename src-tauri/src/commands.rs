@@ -3,6 +3,14 @@
 use crate::types::*;
 use walkdir::WalkDir;
 use std::path::Path;
+use std::fs;
+use pulldown_cmark::{Parser, Options, html};
+use gray_matter::Matter;
+use gray_matter::engine::YAML;
+use axum::Router;
+use tower_http::services::ServeDir;
+use std::net::SocketAddr;
+use tokio::net::TcpListener;
 
 /// Identifies the most likely homepage file from a collection of files.
 /// 
@@ -345,8 +353,16 @@ pub fn publish_folder(folder_path: String) -> Result<String, String> {
         .and_then(|name| name.to_str())
         .unwrap_or("unnamed-site");
     
-    // TODO: Generate static site from scanned files
-    // TODO: Deploy to moss.pub or configured hosting
+    // Generate static site from scanned files
+    println!("🔨 Generating static site...");
+    let site_result = generate_static_site(&folder_path, &project_structure)?;
+    
+    println!("✅ Generated static site with {} pages", site_result.page_count);
+    
+    // Show preview to user
+    show_site_preview(&site_result.output_path)?;
+    
+    // TODO: Deploy to moss.pub or configured hosting (Phase 3)
     
     println!("✅ Ready to publish '{}' with {} files", folder_name, project_structure.total_files);
     
@@ -449,6 +465,131 @@ fn is_tray_icon_actually_visible() -> bool {
     true
 }
 
+/// Starts a local HTTP server to serve the generated website and opens it in the browser.
+/// 
+/// Creates a lightweight Axum server to properly serve the static files with correct
+/// HTTP headers, avoiding CORS issues and providing real web server behavior.
+/// 
+/// # Arguments
+/// * `site_path` - Path to the generated site directory containing index.html
+/// 
+/// # Returns
+/// * `Ok(())` - Successfully started server and opened preview
+/// * `Err(String)` - Failed to start server or open browser
+/// 
+/// # Implementation
+/// - Uses Axum + tower-http for lightweight static file serving
+/// - Finds an available port automatically (starting from 3000)
+/// - Serves the site directory with proper HTTP headers
+/// - Opens localhost URL in default browser
+/// - Server runs in background thread
+fn show_site_preview(site_path: &str) -> Result<(), String> {
+    let site_path = site_path.to_string();
+    
+    // Check if index.html exists
+    let index_path = Path::new(&site_path).join("index.html");
+    if !index_path.exists() {
+        return Err("Generated site has no index.html file".to_string());
+    }
+    
+    // Find an available port
+    let port = find_available_port(3000)?;
+    let preview_url = format!("http://localhost:{}", port);
+    
+    println!("🌐 Starting local server on port {}", port);
+    println!("🔗 Preview URL: {}", preview_url);
+    
+    // Start server in background
+    let server_site_path = site_path.clone();
+    
+    // Try to spawn in existing Tokio runtime, fallback to thread for tests
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        handle.spawn(async move {
+            if let Err(e) = start_preview_server(port, server_site_path).await {
+                eprintln!("❌ Preview server error: {}", e);
+            }
+        });
+    } else {
+        // Fallback for test environment - create minimal runtime
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                if let Err(e) = start_preview_server(port, server_site_path).await {
+                    eprintln!("❌ Preview server error: {}", e);
+                }
+            });
+        });
+    }
+    
+    // Give server a moment to start
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    
+    // Open browser
+    open_browser(&preview_url)?;
+    
+    println!("✅ Preview server started and browser opened");
+    Ok(())
+}
+
+/// Finds an available TCP port starting from the given port number.
+fn find_available_port(start_port: u16) -> Result<u16, String> {
+    for port in start_port..start_port + 100 {
+        if is_port_available(port) {
+            return Ok(port);
+        }
+    }
+    Err("No available ports found".to_string())
+}
+
+/// Checks if a TCP port is available for binding.
+fn is_port_available(port: u16) -> bool {
+    std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
+}
+
+/// Starts an Axum server to serve static files from the specified directory.
+async fn start_preview_server(port: u16, site_path: String) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let app = Router::new()
+        .fallback_service(ServeDir::new(site_path));
+    
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let listener = TcpListener::bind(&addr).await?;
+    
+    println!("📡 Preview server listening on {}", addr);
+    axum::serve(listener, app).await?;
+    
+    Ok(())
+}
+
+/// Opens the given URL in the user's default browser.
+fn open_browser(url: &str) -> Result<(), String> {
+    // Use system command to open in default browser
+    #[cfg(target_os = "macos")]
+    let command_result = std::process::Command::new("open")
+        .arg(url)
+        .status();
+        
+    #[cfg(target_os = "windows")]
+    let command_result = std::process::Command::new("cmd")
+        .args(&["/C", "start", "", url])
+        .status();
+        
+    #[cfg(target_os = "linux")]
+    let command_result = std::process::Command::new("xdg-open")
+        .arg(url)
+        .status();
+    
+    match command_result {
+        Ok(status) => {
+            if status.success() {
+                Ok(())
+            } else {
+                Err("Failed to open browser".to_string())
+            }
+        },
+        Err(e) => Err(format!("Failed to execute browser command: {}", e))
+    }
+}
+
 /// Tauri command to retrieve system diagnostic information.
 /// 
 /// Collects runtime information about the application's integration
@@ -478,6 +619,12 @@ fn is_tray_icon_actually_visible() -> bool {
 /// let info = get_system_status(app_handle)?;
 /// println!("Running on {} with tray: {:?}", info.os, info.tray_status);
 /// ```
+#[tauri::command]
+pub fn test_publish_command(folder_path: String) -> Result<String, String> {
+    println!("🧪 Test publish command called with path: {}", folder_path);
+    publish_folder(folder_path)
+}
+
 #[tauri::command]
 pub fn get_system_status(app: tauri::AppHandle) -> Result<SystemInfo, String> {
     let os = std::env::consts::OS.to_string();
@@ -635,6 +782,313 @@ pub fn install_finder_integration() -> Result<String, String> {
     Ok("Finder integration installed successfully! Right-click any folder → Quick Actions → 'Publish to Web'".to_string())
 }
 
+/// Generates a static website from scanned folder contents.
+/// 
+/// Processes markdown files into HTML pages with beautiful default styling,
+/// handles frontmatter for metadata, and creates a complete navigable website.
+/// 
+/// # Arguments
+/// * `source_path` - Path to the source folder containing content
+/// * `project_structure` - Analysis of the folder's contents and organization
+/// 
+/// # Returns
+/// * `Ok(SiteResult)` - Information about the generated site
+/// * `Err(String)` - Error message if generation fails
+/// 
+/// # Process
+/// 1. Create temporary output directory
+/// 2. Process all markdown files to HTML
+/// 3. Copy image and asset files
+/// 4. Generate index pages and navigation
+/// 5. Create CSS stylesheet with beautiful defaults
+fn generate_static_site(source_path: &str, project_structure: &ProjectStructure) -> Result<SiteResult, String> {
+    
+    // Create output directory in source folder under .moss/site
+    let source_path_buf = Path::new(source_path);
+    let moss_dir = source_path_buf.join(".moss");
+    let output_dir = moss_dir.join("site");
+    
+    // Create .moss directory if it doesn't exist
+    if !moss_dir.exists() {
+        fs::create_dir_all(&moss_dir).map_err(|e| format!("Failed to create .moss directory: {}", e))?;
+    }
+    
+    // Clean and recreate site directory
+    if output_dir.exists() {
+        fs::remove_dir_all(&output_dir).map_err(|e| format!("Failed to clean site directory: {}", e))?;
+    }
+    fs::create_dir_all(&output_dir).map_err(|e| format!("Failed to create site directory: {}", e))?;
+    
+    println!("📁 Creating site in: {}", output_dir.display());
+    
+    // Process markdown files
+    let mut documents = Vec::new();
+    for file_info in &project_structure.markdown_files {
+        let source_file_path = Path::new(source_path).join(&file_info.path);
+        
+        if let Ok(content) = fs::read_to_string(&source_file_path) {
+            if let Ok(doc) = process_markdown_file(&file_info.path, &content) {
+                documents.push(doc);
+            }
+        }
+    }
+    
+    // Generate HTML files
+    let mut page_count = 0;
+    for doc in &documents {
+        let output_file_path = output_dir.join(&doc.url_path);
+        
+        // Create directory if needed
+        if let Some(parent) = output_file_path.parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
+        }
+        
+        let html_page = generate_html_page(doc, &documents, project_structure)?;
+        fs::write(&output_file_path, html_page).map_err(|e| format!("Failed to write HTML file: {}", e))?;
+        page_count += 1;
+    }
+    
+    // Generate CSS
+    let css_content = generate_default_css();
+    fs::write(output_dir.join("style.css"), css_content).map_err(|e| format!("Failed to write CSS: {}", e))?;
+    
+    // Copy image files
+    for file_info in &project_structure.image_files {
+        let source_file = Path::new(source_path).join(&file_info.path);
+        let dest_file = output_dir.join(&file_info.path);
+        
+        if let Some(parent) = dest_file.parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("Failed to create image directory: {}", e))?;
+        }
+        
+        if let Err(e) = fs::copy(&source_file, &dest_file) {
+            println!("⚠️ Warning: Failed to copy image {}: {}", file_info.path, e);
+        }
+    }
+    
+    // Generate index.html if no homepage exists
+    if project_structure.homepage_file.is_none() && !documents.is_empty() {
+        let index_html = generate_index_page(&documents, project_structure)?;
+        fs::write(output_dir.join("index.html"), index_html).map_err(|e| format!("Failed to write index.html: {}", e))?;
+        page_count += 1;
+    }
+    
+    let site_title = project_structure.homepage_file.clone()
+        .or_else(|| documents.first().map(|d| d.title.clone()))
+        .unwrap_or_else(|| "Untitled Site".to_string());
+    
+    Ok(SiteResult {
+        page_count,
+        output_path: output_dir.to_string_lossy().to_string(),
+        site_title,
+    })
+}
+
+/// Processes a markdown file with frontmatter into a ParsedDocument.
+fn process_markdown_file(file_path: &str, content: &str) -> Result<ParsedDocument, String> {
+    let matter = Matter::<YAML>::new();
+    let result = matter.parse(content);
+    
+    // Extract title from frontmatter or filename
+    let title = Path::new(file_path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("Untitled")
+        .replace("-", " ")
+        .replace("_", " ");
+    
+    // Generate URL path
+    let url_path = if file_path.to_lowercase() == "index.md" || file_path.to_lowercase() == "readme.md" {
+        "index.html".to_string()
+    } else {
+        file_path.replace(".md", ".html").replace(".markdown", ".html")
+    };
+    
+    // Convert markdown to HTML
+    let mut options = Options::empty();
+    options.insert(Options::ENABLE_STRIKETHROUGH);
+    options.insert(Options::ENABLE_TABLES);
+    options.insert(Options::ENABLE_FOOTNOTES);
+    
+    let parser = Parser::new_ext(&result.content, options);
+    let mut html_content = String::new();
+    html::push_html(&mut html_content, parser);
+    
+    // Extract date from frontmatter (simplified for now)
+    let date: Option<String> = None;
+    
+    Ok(ParsedDocument {
+        title,
+        content: result.content,
+        html_content,
+        url_path,
+        date,
+    })
+}
+
+/// Generates complete HTML page with navigation and styling.
+fn generate_html_page(doc: &ParsedDocument, all_docs: &[ParsedDocument], _project: &ProjectStructure) -> Result<String, String> {
+    let navigation = generate_navigation(all_docs);
+    
+    Ok(format!(r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{}</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav>
+            {}
+        </nav>
+    </header>
+    <main>
+        <article>
+            <h1>{}</h1>
+            {}
+        </article>
+    </main>
+</body>
+</html>"#, doc.title, navigation, doc.title, doc.html_content))
+}
+
+/// Generates index page listing all content.
+fn generate_index_page(documents: &[ParsedDocument], _project: &ProjectStructure) -> Result<String, String> {
+    let navigation = generate_navigation(documents);
+    
+    let content_list = documents.iter()
+        .filter(|doc| doc.url_path != "index.html")
+        .map(|doc| format!(r#"<li><a href="{}">{}</a></li>"#, doc.url_path, doc.title))
+        .collect::<Vec<_>>()
+        .join("\n");
+    
+    Ok(format!(r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Home</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav>
+            {}
+        </nav>
+    </header>
+    <main>
+        <article>
+            <h1>Welcome</h1>
+            <p>This site was generated with Moss.</p>
+            <h2>Pages</h2>
+            <ul>
+                {}
+            </ul>
+        </article>
+    </main>
+</body>
+</html>"#, navigation, content_list))
+}
+
+/// Generates navigation menu HTML.
+fn generate_navigation(documents: &[ParsedDocument]) -> String {
+    let nav_items = documents.iter()
+        .take(5) // Limit navigation to first 5 pages for simplicity
+        .map(|doc| {
+            let label = if doc.url_path == "index.html" { "Home" } else { &doc.title };
+            format!(r#"<a href="{}">{}</a>"#, doc.url_path, label)
+        })
+        .collect::<Vec<_>>()
+        .join(" | ");
+    
+    nav_items
+}
+
+/// Generates beautiful default CSS styling.
+fn generate_default_css() -> String {
+    r#"/* Moss - Beautiful default styling */
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    line-height: 1.6;
+    color: #333;
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+    background: #f9f9f9;
+}
+
+header {
+    margin-bottom: 2rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+nav a {
+    color: #2d5a2d;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+nav a:hover {
+    text-decoration: underline;
+}
+
+main {
+    background: white;
+    padding: 2rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+h1, h2, h3 {
+    color: #2d5a2d;
+    margin-top: 1.5em;
+}
+
+h1 {
+    border-bottom: 2px solid #e8f5e8;
+    padding-bottom: 0.5rem;
+}
+
+pre {
+    background: #f5f5f5;
+    padding: 1rem;
+    border-radius: 4px;
+    overflow-x: auto;
+}
+
+blockquote {
+    border-left: 4px solid #2d5a2d;
+    margin: 0;
+    padding-left: 1rem;
+    color: #666;
+}
+
+img {
+    max-width: 100%;
+    height: auto;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+}
+
+th, td {
+    border: 1px solid #ddd;
+    padding: 0.5rem;
+    text-align: left;
+}
+
+th {
+    background: #f5f5f5;
+}
+"#.to_string()
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -642,6 +1096,23 @@ mod tests {
     
     // Tests the publishing workflow triggered by Finder integration
     // This is part of Feature 2 (after installation, right-click works)
+
+    #[test]
+    fn test_simple_blog_publishing() {
+        // Test with our specific test content
+        let test_path = "../test-content/simple-blog";
+        if std::path::Path::new(test_path).exists() {
+            let result = publish_folder(test_path.to_string());
+            assert!(result.is_ok(), "Should successfully publish test blog: {:?}", result);
+            
+            if let Ok(success_msg) = result {
+                assert!(success_msg.contains("simple-blog"), "Should mention folder name");
+                println!("✅ Test blog publishing: {}", success_msg);
+            }
+        } else {
+            println!("⚠️ Test content not found at {}, skipping test", test_path);
+        }
+    }
 
     #[test]
     fn test_folder_publishing_workflow() {

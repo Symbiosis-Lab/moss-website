@@ -14,6 +14,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.error('❌ Backend connection failed:', error)
   }
 
+  // Add test button for publishing
+  const testButton = document.createElement('button');
+  testButton.textContent = '🧪 Test Publish';
+  testButton.onclick = async () => {
+    try {
+      const result = await invoke('test_publish_command', { 
+        folderPath: '/Users/liuguo/repo/moss/test-content/simple-blog' 
+      });
+      console.log('✅ Test publish result:', result);
+      alert('Published successfully! Check browser for preview.');
+    } catch (error) {
+      console.error('❌ Test publish failed:', error);
+      alert('Publish failed: ' + error);
+    }
+  };
+  document.body.appendChild(testButton);
+
   // Handle deep links (e.g., moss://publish?path=/path/to/folder)
   try {
     const urls = await getCurrent()
@@ -35,8 +52,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   } catch (error) {
     console.error('❌ Failed to install Finder integration:', error)
   }
-
-  // TODO: Settings UI will be implemented here
 })
 
 async function handleDeepLink(url) {

@@ -3,8 +3,8 @@
   "productName": "Moss",
   "version": "0.1.0",
   "build": {
-    "beforeBuildCommand": "npm run build",
-    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run frontend:build",
+    "beforeDevCommand": "npm run frontend:dev",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
   },

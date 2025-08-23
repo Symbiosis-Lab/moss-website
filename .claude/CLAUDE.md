@@ -13,8 +13,10 @@ Documents are mostly for human, especially developers. So speak their language, 
 When asked to document an idea:
 
 1. **Choose the right location** using the current file structure:
+
    - **General good practices** → `.claude/CLAUDE.md`
    - **Project-specific concepts** → `docs/` directory
+   - **Function / feature-specific concepts** → code comments
 
 2. **Read the target file** to understand existing structure and style
 
@@ -33,6 +35,7 @@ When asked to review insights:
 1. **Look for unknown but useful ideas** - identify concepts you don't naturally follow but are valuable for current tasks
 
 2. **Source identification** - find these insights in:
+
    - User commands and feedback
    - Root causes of bugs discovered
    - Conclusions from web searches and research
@@ -42,6 +45,46 @@ When asked to review insights:
 4. **Document for retention** - capture insights that tend to be forgotten under pressure but significantly impact outcomes
 
 This systematic review prevents losing valuable lessons learned during development cycles.
+
+## Architecture Insights from Implementation
+
+### HTTP Server vs file:// for Preview
+
+- **Problem**: `file://` URLs have CORS restrictions and don't match real deployment behavior
+- **Solution**: Local Axum HTTP server provides proper web environment
+- **Key**: Automatic port detection, cross-platform browser opening
+
+### Output Directory Strategy
+
+- **Wrong**: System temp directories are hard to find and get cleaned up
+- **Right**: Co-locate generated sites with source in `.moss/site/` (git-ignored)
+- **Benefits**: Discoverable, persistent, follows standard patterns (.next, dist, etc.)
+
+### Deep Link Development Limitation
+
+- **macOS Issue**: Protocol registration requires app installation, not available in `npm run tauri dev`
+- **Production Reality**: Works fine after build/install - development limitation only
+- **Workaround**: Direct command testing via UI buttons during development
+
+---
+
+# Development Guidelines
+
+1. **Document the problem** - What specific issue required a decision?
+2. **List considered options** - What alternatives were evaluated?
+3. **Explain the choice** - Why was this option selected?
+4. **Record trade-offs** - What was gained/lost with this decision?
+5. **Note future implications** - How does this affect upcoming work?
+
+This creates valuable context for future developers and prevents re-litigating solved problems.
+
+### Example: Local Preview Server Decision
+
+**Problem**: `file://` URLs cause CORS issues and don't match deployment behavior  
+**Options**: Keep file://, embedded server, external process, HTTP library  
+**Choice**: Axum + tower-http embedded server  
+**Trade-offs**: +50 lines code, +2 dependencies, -CORS issues, +real HTTP behavior  
+**Future**: Enables realistic testing, opens door for dev server features
 
 ---
 
@@ -200,13 +243,21 @@ When multiple valid approaches exist, choose based on:
 - **Avoid implementation coupling** - tests should survive refactoring without changes
 - **Example**: Test "app shows tray icon with menu" not "icon pixel data is correct"
 
+**Test Cleanup Insights**
+
+- Eliminated 17 useless tests that tested implementation details
+- Retained 4 essential tests validating core business logic
+- **Key principle**: Remove tests that provide false confidence
+
 **Feature-Based Testing Strategy**
+
 - Identify core user features (not code modules)
 - Test each feature's complete user journey
 - Mock external dependencies, test internal behavior
 - Use descriptive test names that match user stories
 
 **Implementation vs Behavior Examples**
+
 - ❌ Bad: Test icon pixel arrangement, event parsing logic, data structure serialization
 - ✅ Good: Test tray icon appears, menu items work, Finder integration installs
 
@@ -220,16 +271,19 @@ When multiple valid approaches exist, choose based on:
 ### Root Cause Analysis
 
 **Distinguish Problems from Solutions:**
+
 - When users say "icon doesn't show", the real issue may be system de-prioritization, not icon design
 - **Always ask "what is the fundamental constraint?"** before proposing fixes
 - User complaints about symptoms often mask deeper architectural issues
 
 **"Find the Logically Shortest Path":**
+
 - Don't work around system limitations with UI band-aids
-- Address root causes at the appropriate system level  
+- Address root causes at the appropriate system level
 - Example: Fix tray icon priority detection, don't redesign icons or add warnings
 
 **When Stuck, Question the Approach:**
+
 - If you try 3 different implementations of the same concept, the concept itself may be wrong
 - Step back and ask: "Are we solving the right problem?"
 - Sometimes the solution is to remove complexity, not add it
@@ -237,25 +291,29 @@ When multiple valid approaches exist, choose based on:
 ### API Design Philosophy
 
 **"Simple to Complex, Never Reverse":**
+
 - Start with minimal viable surface area - easier to add than remove
 - Only add complexity when proven necessary through actual usage
 - Refactoring towards simplicity is always valid, expansion requires justification
 
 **Test File Lifecycle Management:**
-- Consolidate duplicate test functionality instead of maintaining parallel implementations  
+
+- Consolidate duplicate test functionality instead of maintaining parallel implementations
 - Remove test files that duplicate main application capabilities
 - Keep file structure compact and self-explanatory - extra files create cognitive load
 
 ### Compilation Error Patterns
 
 **Rust/System API Integration:**
+
 - macOS accessibility APIs require careful type handling (`*const __CFString` vs `&str`)
 - When in doubt, simplify to get compilation working first, then enhance
 - Complex FFI integration can be replaced with simplified heuristics for initial implementation
 
 **Development Workflow:**
+
 - Always test compilation before moving to complex logic
-- Use `cargo build` and `cargo test` as quick validation checkpoints  
+- Use `cargo build` and `cargo test` as quick validation checkpoints
 - Background processes can timeout - use appropriate timeout values for lengthy compilation
 
 ## Important Reminders

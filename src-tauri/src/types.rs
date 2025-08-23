@@ -124,3 +124,34 @@ pub struct MossConfig {
     /// Deployment configuration settings
     pub deployment: DeploymentConfig,
 }
+
+/// Result of static site generation process.
+/// 
+/// Contains summary information about the generated site
+/// including page count and output location.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SiteResult {
+    /// Number of HTML pages generated
+    pub page_count: usize,
+    /// Path to the generated site directory
+    pub output_path: String,
+    /// Site metadata extracted from content
+    pub site_title: String,
+}
+
+/// Parsed markdown document with frontmatter and content.
+/// 
+/// Represents a processed markdown file ready for HTML generation.
+#[derive(Debug, Clone)]
+pub struct ParsedDocument {
+    /// Document title from frontmatter or filename
+    pub title: String,
+    /// Raw markdown content without frontmatter
+    pub content: String,
+    /// HTML content generated from markdown
+    pub html_content: String,
+    /// Relative URL path for the generated page
+    pub url_path: String,
+    /// Publication date if specified in frontmatter
+    pub date: Option<String>,
+}

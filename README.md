@@ -51,9 +51,15 @@ Local files → Moss → Static site → Your infrastructure
 ## Usage
 
 ```bash
-# That's it. No CLI required.
-# Just right-click your folder.
+# Development
+npm run tauri dev          # Launch development app
+# Click "🧪 Test Publish" to test with test-content/simple-blog/
+
+# Production (coming soon)
+# Right-click any folder → "Publish to Web" → See instant preview
 ```
+
+**Current Status**: Core publishing pipeline complete! Folder → Beautiful HTML + localhost preview working. Deployment integration coming next.
 
 For developers who want more:
 

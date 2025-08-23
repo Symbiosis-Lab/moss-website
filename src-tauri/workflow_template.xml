@@ -38,11 +38,19 @@
                         <array>
                             <string>folder_path="$1"
 
+# Debug logging
+echo "$(date): Automator workflow triggered with path: $folder_path" >> /tmp/moss_debug.log
+
 # URL encode the path using native shell (no Python dependency)
 encoded_path=$(printf '%s\n' "$folder_path" | sed 's/ /%20/g')
 
+echo "$(date): Encoded path: $encoded_path" >> /tmp/moss_debug.log
+echo "$(date): Opening deep link: moss://publish?path=$encoded_path" >> /tmp/moss_debug.log
+
 # Open the moss:// deep link
-open "moss://publish?path=$encoded_path"</string>
+open "moss://publish?path=$encoded_path"
+
+echo "$(date): Deep link command completed" >> /tmp/moss_debug.log</string>
                         </array>
                     </dict>
                     <key>CheckedForUserDefaultShell</key>
@@ -72,11 +80,19 @@ open "moss://publish?path=$encoded_path"</string>
                     <key>COMMAND_STRING</key>
                     <string>folder_path="$1"
 
+# Debug logging
+echo "$(date): Automator workflow triggered with path: $folder_path" >> /tmp/moss_debug.log
+
 # URL encode the path using native shell (no Python dependency)
 encoded_path=$(printf '%s\n' "$folder_path" | sed 's/ /%20/g')
 
+echo "$(date): Encoded path: $encoded_path" >> /tmp/moss_debug.log
+echo "$(date): Opening deep link: moss://publish?path=$encoded_path" >> /tmp/moss_debug.log
+
 # Open the moss:// deep link
-open "moss://publish?path=$encoded_path"</string>
+open "moss://publish?path=$encoded_path"
+
+echo "$(date): Deep link command completed" >> /tmp/moss_debug.log</string>
                     <key>CheckedForUserDefaultShell</key>
                     <true/>
                     <key>inputMethod</key>

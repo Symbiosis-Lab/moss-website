@@ -23,7 +23,7 @@ mod types;
 mod commands;
 
 use commands::*;
-use tauri::{Listener, Manager};
+use tauri::{Emitter, Listener, Manager};
 
 /// Main application entry point for Tauri desktop and mobile platforms.
 /// 
@@ -49,30 +49,49 @@ use tauri::{Listener, Manager};
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_deep_link::init())
         .setup(|app| {
+            println!("🌿 Moss app starting up...");
             // Configure macOS-specific behavior: prevent dock icon, stay in tray only
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             
+            // Register deep links at runtime for development mode (Linux/Windows only)
+            #[cfg(any(target_os = "linux", all(debug_assertions, target_os = "windows")))]
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                if let Err(e) = app.deep_link().register_all() {
+                    eprintln!("❌ Failed to register deep links: {}", e);
+                } else {
+                    println!("✅ Deep links registered for development mode");
+                }
+            }
+            
             // Register deep link handler for moss:// protocol URLs
             // Processes publish requests from Finder integration
-            app.listen("deep-link://new-url", |event| {
-                if let Ok(url) = serde_json::from_str::<String>(&event.payload()) {
-                    if url.starts_with("moss://publish?path=") {
-                        if let Some(path_start) = url.find("path=") {
-                            let encoded_path = &url[path_start + 5..];
-                            // Decode URL-encoded path (basic space handling)
-                            let decoded_path = encoded_path.replace("%20", " ");
-                            println!("📥 Deep link received: {}", decoded_path);
-                            
-                            // Execute publish workflow for the selected folder
-                            match publish_folder(decoded_path.clone()) {
-                                Ok(result) => println!("✅ {}", result),
-                                Err(error) => println!("❌ Error: {}", error),
+            println!("🚀 Setting up deep link handler...");
+            let app_handle = app.handle().clone();
+            app.listen("deep-link://new-url", move |event| {
+                println!("🔗 Deep link event received: {:?}", event.payload());
+                eprintln!("🔗 STDERR: Deep link event received: {:?}", event.payload());
+                
+                // Parse the deep link URLs (they come as a vector)
+                if let Ok(urls) = serde_json::from_str::<Vec<String>>(&event.payload()) {
+                    for url in urls {
+                        println!("📥 Processing deep link URL: {}", url);
+                        if url.starts_with("moss://publish?path=") {
+                            if let Some(path_start) = url.find("path=") {
+                                let encoded_path = &url[path_start + 5..];
+                                // Decode URL-encoded path (basic space handling)
+                                let decoded_path = encoded_path.replace("%20", " ");
+                                println!("📁 Decoded folder path: {}", decoded_path);
+                                
+                                // Emit event to frontend which will call the backend command via IPC
+                                if let Err(e) = app_handle.emit("publish-folder-request", &decoded_path) {
+                                    eprintln!("❌ Failed to emit publish request: {}", e);
+                                }
                             }
                         }
                     }
@@ -179,7 +198,7 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![publish_folder, install_finder_integration, get_system_status])
+        .invoke_handler(tauri::generate_handler![publish_folder, install_finder_integration, get_system_status, test_publish_command])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
