@@ -1,4 +1,4 @@
-# Moss Funding Strategy
+# moss Funding Strategy
 
 > Grants as validation and acceleration, not survival
 

@@ -1,6 +1,6 @@
 # Contact
 
-Get in touch about Moss or this test site.
+Get in touch about moss or this test site.
 
 ## Test Lists
 
@@ -12,5 +12,5 @@ Get in touch about Moss or this test site.
 
 ```bash
 # This is a code block
-echo "Moss is working!"
+echo "moss is working!"
 ```

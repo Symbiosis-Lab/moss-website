@@ -1,4 +1,4 @@
-# Moss Developer Guide
+# moss Developer Guide
 
 > Implementation details, file structure, and API reference for contributors
 

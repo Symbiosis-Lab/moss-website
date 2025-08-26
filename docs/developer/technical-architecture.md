@@ -1,4 +1,4 @@
-# Moss Technical Architecture
+# moss Technical Architecture
 
 ## Core Stack
 
@@ -101,7 +101,7 @@ fn build_site(source: PathBuf) -> Result<Site> {
 **JavaScript/TypeScript plugins**
 
 ```typescript
-interface MossPlugin {
+interface mossPlugin {
   // Metadata
   name: string;
   version: string;

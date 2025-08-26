@@ -1,4 +1,4 @@
-# Moss Strategic Overview
+# moss Strategic Overview
 
 > Building slowly, growing inevitably
 
@@ -10,7 +10,7 @@
 
 ### Year 1: Foundation
 
-**Months 1-6:** Build core Moss, reach 100 users  
+**Months 1-6:** Build core moss, reach 100 users  
 **Months 7-12:** Launch ecosystem, reach 1000 users
 
 ### Year 2: Growth

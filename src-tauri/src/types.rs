@@ -1,4 +1,4 @@
-//! Data types and structures for Moss publishing system
+//! Data types and structures for moss publishing system
 
 use serde::{Deserialize, Serialize};
 

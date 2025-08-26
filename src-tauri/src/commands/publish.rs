@@ -1,4 +1,4 @@
-//! Tauri commands and business logic for Moss publishing system
+//! Tauri commands and business logic for moss publishing system
 
 use crate::types::*;
 use walkdir::WalkDir;
@@ -11,6 +11,7 @@ use axum::Router;
 use tower_http::services::ServeDir;
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
+use tauri::Manager;
 
 /// Recursively copies a directory and all its contents
 fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<(), String> {
@@ -378,8 +379,8 @@ pub fn publish_folder(folder_path: String) -> Result<String, String> {
     let site_result = generate_static_site(&folder_path, &project_structure)?;
     
     
-    // Show preview to user
-    show_site_preview(&site_result.output_path)?;
+    // Start local preview server (browser opening handled by preview window)
+    start_site_server(&site_result.output_path)?;
     
     // TODO: Deploy to moss.pub or configured hosting (Phase 3)
     
@@ -483,25 +484,26 @@ fn is_tray_icon_actually_visible() -> bool {
     true
 }
 
-/// Starts a local HTTP server to serve the generated website and opens it in the browser.
+/// Starts a local HTTP server to serve the generated website.
 /// 
 /// Creates a lightweight Axum server to properly serve the static files with correct
 /// HTTP headers, avoiding CORS issues and providing real web server behavior.
+/// The preview window will display the site via iframe.
 /// 
 /// # Arguments
 /// * `site_path` - Path to the generated site directory containing index.html
 /// 
 /// # Returns
-/// * `Ok(())` - Successfully started server and opened preview
-/// * `Err(String)` - Failed to start server or open browser
+/// * `Ok(())` - Successfully started server
+/// * `Err(String)` - Failed to start server
 /// 
 /// # Implementation
 /// - Uses Axum + tower-http for lightweight static file serving
 /// - Finds an available port automatically (starting from 3000)
 /// - Serves the site directory with proper HTTP headers
-/// - Opens localhost URL in default browser
 /// - Server runs in background thread
-fn show_site_preview(site_path: &str) -> Result<(), String> {
+/// - Port 8080 is preferred for consistency with preview window
+fn start_site_server(site_path: &str) -> Result<(), String> {
     let site_path = site_path.to_string();
     
     // Check if index.html exists
@@ -510,9 +512,8 @@ fn show_site_preview(site_path: &str) -> Result<(), String> {
         return Err("Generated site has no index.html file".to_string());
     }
     
-    // Find an available port
-    let port = find_available_port(3000)?;
-    let preview_url = format!("http://localhost:{}", port);
+    // Use port 8080 for consistency with preview window
+    let port = if is_port_available(8080) { 8080 } else { find_available_port(8080)? };
     
     
     // Start server in background
@@ -540,9 +541,6 @@ fn show_site_preview(site_path: &str) -> Result<(), String> {
     // Give server a moment to start
     std::thread::sleep(std::time::Duration::from_millis(500));
     
-    // Open browser
-    open_browser(&preview_url)?;
-    
     Ok(())
 }
 
@@ -553,7 +551,7 @@ fn find_available_port(start_port: u16) -> Result<u16, String> {
             return Ok(port);
         }
     }
-    Err("No available ports found".to_string())
+    Err(format!("No available ports found starting from {}", start_port))
 }
 
 /// Checks if a TCP port is available for binding.
@@ -953,7 +951,7 @@ fn generate_index_page(documents: &[ParsedDocument], _project: &ProjectStructure
     <main>
         <article>
             <h1>Welcome</h1>
-            <p>This site was generated with Moss.</p>
+            <p>This site was generated with moss.</p>
             <h2>Pages</h2>
             <ul>
                 {}
@@ -980,7 +978,7 @@ fn generate_navigation(documents: &[ParsedDocument]) -> String {
 
 /// Generates beautiful default CSS styling.
 fn generate_default_css() -> String {
-    r#"/* Moss - Beautiful default styling */
+    r#"/* moss - Beautiful default styling */
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     line-height: 1.6;
@@ -1102,5 +1100,127 @@ mod tests {
         let result = publish_folder("/does/not/exist".to_string());
         assert!(result.is_err(), "Should handle non-existent folders");
         assert!(result.unwrap_err().contains("does not exist"));
+    }
+}
+
+/// Gets the last selected directory from app config storage.
+/// 
+/// Returns the last directory path chosen by the user for publishing,
+/// or None if no previous selection exists.
+fn get_last_selected_directory(app: &tauri::AppHandle) -> Option<String> {
+    let app_config_dir = app.path().app_config_dir().ok()?;
+    let config_file = app_config_dir.join("last_directory.txt");
+    
+    if config_file.exists() {
+        std::fs::read_to_string(config_file).ok()
+    } else {
+        None
+    }
+}
+
+/// Saves the selected directory to app config storage.
+/// 
+/// Stores the directory path for use as default in future directory picker dialogs.
+fn save_last_selected_directory(app: &tauri::AppHandle, directory: &str) -> Result<(), String> {
+    let app_config_dir = app.path().app_config_dir()
+        .map_err(|e| format!("Failed to get app config directory: {}", e))?;
+    
+    std::fs::create_dir_all(&app_config_dir)
+        .map_err(|e| format!("Failed to create config directory: {}", e))?;
+    
+    let config_file = app_config_dir.join("last_directory.txt");
+    std::fs::write(config_file, directory)
+        .map_err(|e| format!("Failed to save directory: {}", e))?;
+    
+    Ok(())
+}
+
+/// Tauri command to open directory picker and publish the selected folder.
+/// 
+/// Opens a native directory selection dialog, remembers the choice for next time,
+/// and triggers the complete build → preview workflow.
+/// 
+/// # Arguments
+/// * `app` - Tauri application handle for file dialog and config access
+/// 
+/// # Returns
+/// * `Ok(String)` - Success message indicating publish started
+/// * `Err(String)` - Error if dialog canceled or publish failed
+/// 
+/// # Behavior
+/// 1. Shows native directory picker starting from last selected directory
+/// 2. Saves new selection for next time
+/// 3. Triggers build → preview workflow
+/// 4. Returns immediately (preview opens asynchronously)
+#[tauri::command]
+pub async fn publish_with_directory_picker(app: tauri::AppHandle) -> Result<String, String> {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+    
+    // Get last selected directory as default
+    let default_path = get_last_selected_directory(&app);
+    
+    // Open directory picker
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    
+    app
+        .dialog()
+        .file()
+        .set_title("Select folder to publish")
+        .set_directory(default_path.unwrap_or_else(|| {
+            std::env::var("HOME").unwrap_or_else(|_| ".".to_string())
+        }))
+        .pick_folder(move |folder_path| {
+            let _ = sender.send(folder_path);
+        });
+    
+    let folder_path = receiver.await.map_err(|_| "Dialog channel error".to_string())?;
+    
+    match folder_path {
+        Some(path) => {
+            // Convert FilePath to string path
+            let path_str = path.to_string();
+            let path_buf = std::path::PathBuf::from(&path_str);
+            
+            // Save for next time
+            if let Err(e) = save_last_selected_directory(&app, &path_str) {
+                eprintln!("⚠️ Failed to save directory preference: {}", e);
+            }
+            
+            // Step 1: Build the site (compile files, start local server)
+            match publish_folder(path_str.clone()) {
+                Ok(result) => {
+                    println!("✅ Build completed: {}", result);
+                    
+                    // Step 2: Open preview window pointing to local server
+                    use crate::preview;
+                    
+                    let preview_url = preview::build_preview_url("http://localhost:8080", &path_buf);
+                    let state = preview::PreviewState::new(path_buf.clone(), preview_url);
+                    
+                    if let Err(error) = preview::create_preview_window(&app, state.clone(), None) {
+                        return Err(format!("Build succeeded but preview failed: {}", error));
+                    }
+                    
+                    // Add to manager if available
+                    if let Some(manager) = app.try_state::<crate::preview::PreviewWindowManager>() {
+                        manager.add_window(state);
+                    }
+                    
+                    Ok(format!("Publishing {} - preview window opening", path_buf.file_name().unwrap_or_default().to_string_lossy()))
+                },
+                Err(error) => {
+                    // Show error dialog to user
+                    let _ = app
+                        .dialog()
+                        .message(format!("Failed to build site: {}", error))
+                        .kind(MessageDialogKind::Error)
+                        .title("Build Error")
+                        .blocking_show();
+                    
+                    Err(format!("Build failed: {}", error))
+                }
+            }
+        },
+        None => Err("Directory selection canceled".to_string()),
     }
 }

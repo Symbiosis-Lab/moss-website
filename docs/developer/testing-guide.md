@@ -1,4 +1,4 @@
-# Moss Testing Guide
+# moss Testing Guide
 
 ## Philosophy: Test Behavior, Not Implementation
 
@@ -29,7 +29,7 @@ moss/
 ### Test Categories
 
 #### **1. Content Analysis Tests** (Core Business Logic)
-Tests the heart of Moss functionality - analyzing folders for website generation:
+Tests the heart of moss functionality - analyzing folders for website generation:
 
 ```rust
 #[test]
@@ -252,7 +252,7 @@ fn test_finder_integration_e2e() {
 **WebDriver Testing for UI Workflows**
 ```javascript
 // Future: E2E testing with WebDriver
-describe('Moss UI Integration', () => {
+describe('moss UI Integration', () => {
   test('Settings window opens from tray menu', async () => {
     // Start app, click tray icon, verify settings window appears
     await driver.click('[data-testid="tray-settings"]');

@@ -1,6 +1,6 @@
 # Welcome to My Site
 
-This is the homepage of my website. It was generated with **Moss**!
+This is the homepage of my website. It was generated with **moss**!
 
 ## About
 

@@ -101,7 +101,7 @@ NYC isn't just exhausted - it's lonely. In a city of 8 million, we're all perfor
 2. Physical component (events/installations)
 3. Subway advertising
 4. Press campaign
-5. Moss integration
+5. moss integration
 
 ## The Anti-Campaigns (What NOT to Do)
 
@@ -118,7 +118,7 @@ The winning campaign must:
 2. **Give permission for vulnerability**
 3. **Create cathartic release**
 4. **Have viral mechanics built in**
-5. **Connect to Moss naturally** (people need sites for their stories)
+5. **Connect to moss naturally** (people need sites for their stories)
 
 ## Next Steps
 

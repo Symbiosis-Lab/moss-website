@@ -16,7 +16,7 @@ When asked to document an idea:
 
    - **Function / feature-specific concepts** → code comments
    - **Today's learning** → `docs/developer/journal`, with today's date as file name
-   - **Project-specific plans** → `docs/implementation-plan.md`
+   - **Project-specific plans** → `docs/developer/implementation-plan.md`
    - **General good practices** → `.claude/CLAUDE.md`
 
 2. **Read the target file** to understand existing structure and style
@@ -26,6 +26,8 @@ When asked to document an idea:
 4. **Rewrite organically** - integrate the idea naturally with surrounding text rather than just appending
 
 5. **Review for coherence** - read the entire file to ensure it remains concise and flows well in both content and style
+
+6. **Add references** - add references whenever you can be certain with the validity of the url.
 
 This approach maintains document quality and prevents fragmentation of related concepts across multiple files.
 

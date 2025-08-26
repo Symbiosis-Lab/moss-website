@@ -1,4 +1,4 @@
-# Moss Implementation Plan
+# moss Implementation Plan
 
 > Building the irreducible core: right-click → publish → done
 
@@ -19,6 +19,9 @@
 - Created working Automator service with proper macOS integration
 - Implemented automatic workflow installation system
 - Added comprehensive unit test coverage for core business logic
+- ✅ **Added menu bar "Publish" button for development and production use**
+- ✅ **Implemented directory memory using app config storage**
+- ✅ **Created complete preview window architecture with state management**
 
 ## Phase 1: Deployment Integration
 
@@ -36,10 +39,10 @@
 ## Phase 2: Polish & User Experience
 
 ### 2.1 Interface Improvements  
-- [ ] Improve tray menu structure and tooltips
+- ✅ Improve tray menu structure and tooltips (added Publish button)
 - [ ] Add "Recently Published" submenu
 - [ ] Implement notification system for publish status
-- [ ] Better error messaging and recovery
+- ✅ Better error messaging and recovery (added error dialogs)
 
 ### 2.2 Developer Features
 - [ ] File watching for auto-republish
@@ -78,7 +81,7 @@ The following components require end-to-end testing due to their integration wit
 
 #### **System Integration Tests**
 - **Finder Integration**: Verify "Publish" appears in right-click context menu for folders
-- **Deep Link Registration**: Test `moss://publish?path=...` URLs open Moss app correctly
+- **Deep Link Registration**: Test `moss://publish?path=...` URLs open moss app correctly
 - **First Launch Setup**: Validate automatic workflow installation on fresh app install
 - **Services Cache**: Ensure workflow persists after system restarts and user sessions
 
@@ -105,6 +108,42 @@ The following components require end-to-end testing due to their integration wit
 - Test both successful workflows and error conditions
 - Validate user-observable outcomes, not implementation details
 - Include performance benchmarks (publish time <5 seconds for typical content)
+
+## Publishing Workflow Definition
+
+The moss publishing workflow consists of these distinct steps:
+
+### 1. **Build** 
+Turn source files (Markdown, images, etc.) into web pages
+- Parse content and frontmatter
+- Generate HTML from Markdown
+- Copy assets and create site structure
+- Output to `.moss/site/` directory
+- Start local HTTP server for preview
+
+### 2. **Preview**
+Show user the built site with controls for next actions
+- Open preview window with iframe pointing to local server
+- Display control bar with Publish, Edit, Syndicate buttons
+- Allow user to review content before making it public
+
+### 3. **Publish**
+Upload web pages to hosting platform
+- Deploy built site to moss.pub (or other platforms)
+- Make content publicly accessible via URL
+- Update publication status in preview window
+
+### 4. **Syndicate** 
+Share publication across different channels
+- Post to social media platforms
+- Submit to content aggregators
+- Notify subscribers or mailing lists
+
+**Current Status**: Build + Preview architecture implemented. 
+- ✅ Build: Compiles content and starts local server
+- ✅ Preview: Shows built site in dedicated window with controls  
+- 🔄 Publish: Mock implementation (real deployment planned for Phase 1)
+- 📋 Syndicate: Planned for Phase 1
 
 ## Architecture Decisions
 

@@ -1,4 +1,4 @@
-# Moss Financial Plan
+# moss Financial Plan
 
 ## Year 1 Budget (Solo Founder)
 

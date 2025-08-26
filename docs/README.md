@@ -1,4 +1,4 @@
-# Moss Documentation
+# moss Documentation
 
 > Building infrastructure for the next generation of the web
 

@@ -1,4 +1,4 @@
-//! # Moss - Desktop Publishing App
+//! # moss - Desktop Publishing App
 //!
 //! A Tauri-based desktop application that allows users to publish folders as websites
 //! with right-click integration on macOS Finder.
@@ -21,8 +21,10 @@
 
 mod types;
 mod commands;
+mod preview;
 
 use commands::*;
+use preview::PreviewWindowManager;
 use tauri::Manager;
 
 /// Main application entry point for Tauri desktop and mobile platforms.
@@ -93,17 +95,38 @@ pub fn extract_path_from_deep_link(url: &str) -> Option<String> {
     None
 }
 
-/// Handles deep link URLs by extracting the path and triggering the publish workflow
+/// Handles deep link URLs by building the site and then opening a preview window
 /// 
+/// Workflow: Build → Preview → (user can then Publish/Syndicate)
 /// Processes URLs in the format: `moss://publish?path=<encoded_path>`
-fn handle_deep_link_url(_app: &tauri::AppHandle, url: &str) {
+fn handle_deep_link_url(app: &tauri::AppHandle, url: &str) {
     if let Some(folder_path) = extract_path_from_deep_link(url) {
-        // Directly call the publish command
-        match publish_folder(folder_path) {
-            Ok(_result) => {
+        let path = std::path::PathBuf::from(&folder_path);
+        
+        // Step 1: Build the site (compile files, start local server)
+        match publish_folder(folder_path.clone()) {
+            Ok(result) => {
+                println!("✅ Build completed: {}", result);
+                
+                // Step 2: Open preview window pointing to local server
+                let preview_url = preview::build_preview_url("http://localhost:8080", &path);
+                let state = preview::PreviewState::new(path, preview_url);
+                
+                if let Err(error) = preview::create_preview_window(app, state.clone(), None) {
+                    eprintln!("❌ Failed to create preview window: {}", error);
+                    return;
+                }
+                
+                // Add to manager if available
+                if let Some(manager) = app.try_state::<PreviewWindowManager>() {
+                    manager.add_window(state);
+                    println!("✅ Opened preview window after successful build");
+                } else {
+                    eprintln!("❌ Preview window manager not available");
+                }
             },
             Err(error) => {
-                eprintln!("❌ Deep link publish failed: {}", error);
+                eprintln!("❌ Build failed, cannot open preview: {}", error);
             }
         }
     }
@@ -117,6 +140,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             
@@ -171,12 +195,15 @@ pub fn run() {
             };
 
             // Build system tray menu with standard items
+            let publish_i = MenuItem::with_id(app, "publish", "Publish...", true, None::<&str>)?;
             let settings_i = MenuItem::with_id(app, "settings", "Settings...", true, None::<&str>)?;
-            let about_i = MenuItem::with_id(app, "about", "About Moss", true, None::<&str>)?;
+            let about_i = MenuItem::with_id(app, "about", "About moss", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
 
             // Assemble menu with proper separators for platform consistency
             let menu = MenuBuilder::new(app)
+                .item(&publish_i)
+                .item(&PredefinedMenuItem::separator(app)?)
                 .item(&settings_i)
                 .item(&about_i)
                 .item(&PredefinedMenuItem::separator(app)?)
@@ -209,10 +236,24 @@ pub fn run() {
                 .menu(&menu)
                 .on_menu_event(move |app, event| {
                     match event.id().as_ref() {
+                        "publish" => {
+                            // Trigger directory picker and publish workflow
+                            let app_handle = app.clone();
+                            tauri::async_runtime::spawn(async move {
+                                match commands::publish_with_directory_picker(app_handle).await {
+                                    Ok(message) => {
+                                        println!("✅ {}", message);
+                                    },
+                                    Err(error) => {
+                                        eprintln!("❌ Publish failed: {}", error);
+                                    }
+                                }
+                            });
+                        }
                         "settings" => {
                             // Show main window as settings dialog
                             if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.set_title("Moss Settings");
+                                let _ = window.set_title("moss Settings");
                                 let _ = window.show();
                                 let _ = window.set_focus();
                             }
@@ -237,7 +278,7 @@ pub fn run() {
                 Ok(tray) => {
                     // Set helpful tooltip for user guidance
                     if let Some(retrieved_tray) = app.tray_by_id(tray.id()) {
-                        let _ = retrieved_tray.set_tooltip(Some("Moss - Right-click to publish"));
+                        let _ = retrieved_tray.set_tooltip(Some("moss - Right-click to publish"));
                     }
                     let _tray = tray; // Keep tray alive
                 },
@@ -262,7 +303,20 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![publish_folder, install_finder_integration, get_system_status])
+        .manage(PreviewWindowManager::new())
+        .invoke_handler(tauri::generate_handler![
+            publish_folder, 
+            install_finder_integration, 
+            get_system_status,
+            open_preview_window,
+            publish_from_preview,
+            open_editor_from_preview,
+            add_syndication_target,
+            remove_syndication_target,
+            get_preview_state,
+            close_preview_window_cmd,
+            publish_with_directory_picker
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

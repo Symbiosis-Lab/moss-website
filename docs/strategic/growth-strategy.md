@@ -1,4 +1,4 @@
-# Moss Growth Strategy
+# moss Growth Strategy
 
 > No growth hacking. No viral loops. Just steady value creation.
 
@@ -39,7 +39,7 @@ We grow like moss - slowly, inevitably, in overlooked spaces. We don't optimize 
 **Target: 500 users**
 
 - First NYC content campaign
-- Creates reason to try Moss
+- Creates reason to try moss
 - Press coverage from campaign
 - Participants become users
 

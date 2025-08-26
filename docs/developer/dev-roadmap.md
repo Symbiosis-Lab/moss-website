@@ -1,4 +1,4 @@
-# Moss Development Roadmap
+# moss Development Roadmap
 
 > Building slowly, growing inevitably
 
@@ -64,7 +64,7 @@ Build first, fund second. We have runway to build without compromise. Each phase
 ### Technical Milestones
 - Plugin marketplace
 - Multi-language support (Chinese excellence)
-- Moss.pub hosting tiers
+- moss.pub hosting tiers
 - Full ActivityPub federation
 - API for third-party tools
 

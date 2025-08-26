@@ -1,6 +1,6 @@
 {
   "identifier": "com.moss.publisher",
-  "productName": "Moss",
+  "productName": "moss",
   "version": "0.1.0",
   "build": {
     "beforeBuildCommand": "npm run frontend:build",
@@ -14,7 +14,7 @@
         "label": "main",
         "fullscreen": false,
         "resizable": true,
-        "title": "Moss",
+        "title": "moss",
         "width": 800,
         "height": 600,
         "visible": false

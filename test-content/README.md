@@ -1,6 +1,6 @@
-# Test Content for Moss Development
+# Test Content for moss Development
 
-This directory contains test websites for developing and testing Moss publishing functionality.
+This directory contains test websites for developing and testing moss publishing functionality.
 
 ## Test Sites
 
@@ -13,7 +13,7 @@ Basic 3-page site with homepage, about, and contact pages.
 
 ### Development Testing
 1. **Start dev app**: `npm run tauri dev`
-2. **Click test button**: "🧪 Test Publish" in the Moss window  
+2. **Click test button**: "🧪 Test Publish" in the moss window  
 3. **View result**: Opens `http://localhost:3000` with beautiful generated site
 
 ### Production Testing  

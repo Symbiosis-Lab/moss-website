@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', async () => {
-  console.log('Moss app loaded')
+  console.log('moss app loaded')
   
   // Get Tauri API functions
   const { invoke } = await import('@tauri-apps/api/core')

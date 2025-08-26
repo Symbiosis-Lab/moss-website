@@ -1,10 +1,10 @@
-# Moss
+# moss
 
 > Write anywhere. Publish everywhere. Own everything.
 
 ## Philosophy
 
-Like its namesake, Moss thrives in the spaces others overlook. It doesn't compete with platforms for sunlight. It creates the foundation layer that enables an entire ecosystem.
+Like its namesake, moss thrives in the spaces others overlook. It doesn't compete with platforms for sunlight. It creates the foundation layer that enables an entire ecosystem.
 
 - **Invisible but essential** - You don't notice moss until it's gone
 - **Resilient** - Survives where others can't
@@ -22,14 +22,14 @@ Your files stay on your computer. Your site lives on your domain. Your audience 
 ## [Architecture](./docs/developer/technical-architecture.md)
 
 ```
-Local files → Moss → Static site → Your infrastructure
+Local files → moss → Static site → Your infrastructure
                 ↓
           Syndication → Existing platforms
                 ↓
         Spore/Lichen → Social layer
 ```
 
-**Moss** - Tauri app, lives in menu bar, compiles and deploys  
+**moss** - Tauri app, lives in menu bar, compiles and deploys  
 **Spore** - Optional ActivityPub/WebMention server  
 **Lichen** - JavaScript widget for comments on any static site
 
@@ -65,7 +65,7 @@ For developers who want more:
 
 ```javascript
 // Everything beyond core is a plugin
-interface MossPlugin {
+interface mossPlugin {
   onBuild?: (site: Site) => Site
   onPublish?: (deploy: Deploy) => void
   syndicate?: (post: Post) => Result
