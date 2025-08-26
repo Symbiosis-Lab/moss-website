@@ -23,7 +23,7 @@ mod types;
 mod commands;
 
 use commands::*;
-use tauri::{Emitter, Listener, Manager};
+use tauri::Manager;
 
 /// Main application entry point for Tauri desktop and mobile platforms.
 /// 
@@ -73,24 +73,31 @@ pub fn run() {
             // Processes publish requests from Finder integration
             println!("🚀 Setting up deep link handler...");
             let app_handle = app.handle().clone();
-            app.listen("deep-link://new-url", move |event| {
-                println!("🔗 Deep link event received: {:?}", event.payload());
-                eprintln!("🔗 STDERR: Deep link event received: {:?}", event.payload());
+            
+            // Use proper Tauri v2 deep link API
+            use tauri_plugin_deep_link::DeepLinkExt;
+            app.deep_link().on_open_url(move |event| {
+                let urls = event.urls();
+                println!("🔗 Deep link event received: {:?}", urls);
+                eprintln!("🔗 STDERR: Deep link event received: {:?}", urls);
                 
-                // Parse the deep link URLs (they come as a vector)
-                if let Ok(urls) = serde_json::from_str::<Vec<String>>(&event.payload()) {
-                    for url in urls {
-                        println!("📥 Processing deep link URL: {}", url);
-                        if url.starts_with("moss://publish?path=") {
-                            if let Some(path_start) = url.find("path=") {
-                                let encoded_path = &url[path_start + 5..];
-                                // Decode URL-encoded path (basic space handling)
-                                let decoded_path = encoded_path.replace("%20", " ");
-                                println!("📁 Decoded folder path: {}", decoded_path);
-                                
-                                // Emit event to frontend which will call the backend command via IPC
-                                if let Err(e) = app_handle.emit("publish-folder-request", &decoded_path) {
-                                    eprintln!("❌ Failed to emit publish request: {}", e);
+                for url in &urls {
+                    println!("📥 Processing deep link URL: {}", url);
+                    let url_str = url.as_str();
+                    if url_str.starts_with("moss://publish?path=") {
+                        if let Some(path_start) = url_str.find("path=") {
+                            let encoded_path = &url_str[path_start + 5..];
+                            // Decode URL-encoded path (basic space handling)
+                            let decoded_path = encoded_path.replace("%20", " ");
+                            println!("📁 Decoded folder path: {}", decoded_path);
+                            
+                            // Directly call the publish command
+                            match publish_folder(decoded_path) {
+                                Ok(result) => {
+                                    println!("✅ Deep link publish success: {}", result);
+                                },
+                                Err(error) => {
+                                    eprintln!("❌ Deep link publish failed: {}", error);
                                 }
                             }
                         }

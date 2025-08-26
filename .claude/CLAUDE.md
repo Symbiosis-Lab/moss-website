@@ -14,9 +14,10 @@ When asked to document an idea:
 
 1. **Choose the right location** using the current file structure:
 
-   - **General good practices** → `.claude/CLAUDE.md`
-   - **Project-specific concepts** → `docs/` directory
    - **Function / feature-specific concepts** → code comments
+   - **Today's learning** → `docs/developer/journal`, with today's date as file name
+   - **Project-specific plans** → `docs/implementation-plan.md`
+   - **General good practices** → `.claude/CLAUDE.md`
 
 2. **Read the target file** to understand existing structure and style
 

@@ -3,7 +3,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   // Get Tauri API functions
   const { invoke } = await import('@tauri-apps/api/core')
-  const { getCurrent } = await import('@tauri-apps/plugin-deep-link')
+  const { getCurrent, onOpenUrl } = await import('@tauri-apps/plugin-deep-link')
   
   // Test backend connection with actual commands
   try {
@@ -42,6 +42,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   } catch (error) {
     console.log('No deep link on startup (this is normal)')
+  }
+
+  // Listen for deep links while app is running
+  try {
+    console.log('🎯 Setting up runtime deep link listener...')
+    await onOpenUrl(async (urls) => {
+      console.log('🔗 Runtime deep link received:', urls)
+      for (const url of urls) {
+        await handleDeepLink(url)
+      }
+    })
+    console.log('✅ Runtime deep link listener active')
+  } catch (error) {
+    console.error('❌ Failed to set up runtime deep link listener:', error)
   }
 
   // Check if this is first launch - install Finder integration

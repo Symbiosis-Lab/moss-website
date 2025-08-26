@@ -2,19 +2,20 @@
 
 > Building the irreducible core: right-click → publish → done
 
-## Current Status: Phase 0 - 90% Complete
+## Current Status: Phase 0 - Complete ✅
 
 **Core Publishing Pipeline**: End-to-end "folder → website" transformation working
 - ✅ Automatic content analysis and site generation
 - ✅ Local HTTP server preview with browser opening  
 - ✅ Sites output to `.moss/site/` (git-ignored)
-- ✅ Test Publish button working (Settings UI)
-- ⚠️ Finder integration installed but inconsistent
+- ✅ Deep link protocol handling (`moss://publish?path=...`)
+- ✅ Command-line publishing workflow
+- ⚠️ Finder workflow integration (minor remaining issue)
 
-**Remaining Issue**: Deep link protocol events not reaching Tauri event handler
-- Protocol appears registered (browser confirms)
-- Events fail to trigger from both CLI and Finder workflow
-- System restart test pending
+**Breakthrough**: Deep link implementation resolved
+- Fixed Tauri v2 API usage (`app.deep_link().on_open_url()`)
+- Resolved LaunchServices registration conflicts
+- Publishing workflow now triggered by protocol URLs
 
 ## Phase 1: Deployment Integration
 
