@@ -10,12 +10,15 @@
 - ✅ Sites output to `.moss/site/` (git-ignored)
 - ✅ Deep link protocol handling (`moss://publish?path=...`)
 - ✅ Command-line publishing workflow
-- ⚠️ Finder workflow integration (minor remaining issue)
+- ✅ Finder right-click integration ("Publish" appears in main context menu)
+- ✅ Automatic installation on first launch
 
-**Breakthrough**: Deep link implementation resolved
-- Fixed Tauri v2 API usage (`app.deep_link().on_open_url()`)
-- Resolved LaunchServices registration conflicts
-- Publishing workflow now triggered by protocol URLs
+**Recent Achievements**:
+- Resolved Tauri v2 deep link API implementation
+- Fixed LaunchServices registration conflicts
+- Created working Automator service with proper macOS integration
+- Implemented automatic workflow installation system
+- Added comprehensive unit test coverage for core business logic
 
 ## Phase 1: Deployment Integration
 
@@ -59,7 +62,49 @@
 - [ ] Add proper error handling throughout
 - [ ] Implement configuration persistence
 - [ ] Add comprehensive logging system
-- [ ] Create automated testing for publish pipeline
+- ✅ Create automated testing for publish pipeline
+
+### Testing Strategy
+
+**Unit Tests (Comprehensive ✅)**
+- Core content analysis functions (homepage detection, folder classification)
+- URL processing and deep link parsing
+- Project type identification and business logic
+- Publishing workflow components
+
+**Integration & E2E Testing (Planned)**
+
+The following components require end-to-end testing due to their integration with macOS system services and external dependencies:
+
+#### **System Integration Tests**
+- **Finder Integration**: Verify "Publish" appears in right-click context menu for folders
+- **Deep Link Registration**: Test `moss://publish?path=...` URLs open Moss app correctly
+- **First Launch Setup**: Validate automatic workflow installation on fresh app install
+- **Services Cache**: Ensure workflow persists after system restarts and user sessions
+
+#### **End-to-End Publishing Workflow**
+- **Right-click → Publish**: Complete user journey from Finder to generated website
+- **Path Handling**: Test folders with spaces, special characters, nested structures
+- **Browser Integration**: Verify generated sites open correctly in default browser
+- **File System Operations**: Test `.moss/site/` directory creation and cleanup
+
+#### **Cross-System Compatibility**
+- **macOS Version Support**: Test on macOS Big Sur, Monterey, Ventura, Sonoma
+- **Permission Handling**: Verify no elevated permissions required
+- **App Bundle Distribution**: Test installation from DMG, direct copy, etc.
+
+#### **Error Scenarios & Recovery**
+- **Missing Resources**: Behavior when bundled workflow files are corrupted
+- **Permission Denied**: Graceful handling when `~/Library/Services` is protected
+- **Conflicting Services**: Behavior when other "Publish" services exist
+- **Network Issues**: Local HTTP server startup failures, port conflicts
+
+**E2E Test Implementation Strategy**:
+- Use temporary test directories for isolated testing
+- Mock external services where possible
+- Test both successful workflows and error conditions
+- Validate user-observable outcomes, not implementation details
+- Include performance benchmarks (publish time <5 seconds for typical content)
 
 ## Architecture Decisions
 
@@ -71,9 +116,11 @@
 
 ### Key Design Patterns
 - **Local-first**: User data stays on device
-- **Zero configuration**: Works out of the box
-- **Standards-based**: Use existing protocols and patterns
-- **Performance-focused**: <5 minute first publish
+- **Zero configuration**: Works out of the box immediately after install
+- **Standards-based**: Use existing protocols and patterns (macOS Services, HTTP)
+- **Performance-focused**: <5 seconds typical publish time
+- **Graceful degradation**: Core functionality works even if system integration fails
+- **Test-driven development**: Comprehensive unit tests for business logic, E2E for system integration
 
 ---
 

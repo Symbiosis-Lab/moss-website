@@ -41,6 +41,9 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "resources": [
+      "../resources"
+    ],
     "longDescription": "Right-click to publish. Keep your content portable.",
     "shortDescription": "Right-click to publish",
     "targets": "all"

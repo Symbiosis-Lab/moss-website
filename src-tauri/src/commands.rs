@@ -12,6 +12,36 @@ use tower_http::services::ServeDir;
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
 
+/// Recursively copies a directory and all its contents
+fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<(), String> {
+    let src = src.as_ref();
+    let dst = dst.as_ref();
+    
+    if !src.exists() {
+        return Err(format!("Source directory does not exist: {}", src.display()));
+    }
+    
+    fs::create_dir_all(dst)
+        .map_err(|e| format!("Failed to create destination directory: {}", e))?;
+    
+    for entry in fs::read_dir(src)
+        .map_err(|e| format!("Failed to read source directory: {}", e))? 
+    {
+        let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
+        let path = entry.path();
+        let dest_path = dst.join(entry.file_name());
+        
+        if path.is_dir() {
+            copy_dir_all(&path, &dest_path)?;
+        } else {
+            fs::copy(&path, &dest_path)
+                .map_err(|e| format!("Failed to copy file {}: {}", path.display(), e))?;
+        }
+    }
+    
+    Ok(())
+}
+
 /// Identifies the most likely homepage file from a collection of files.
 /// 
 /// Uses a priority-based detection algorithm to find the main entry point
@@ -272,14 +302,6 @@ fn scan_folder(folder_path: &str) -> Result<ProjectStructure, String> {
     let content_folders = detect_content_folders(&all_files);
     let project_type = detect_project_type_from_content(&all_files, &content_folders);
     
-    println!("📊 Scanned folder: {} files found", total_files);
-    println!("   📝 Markdown: {}", markdown_files.len());
-    println!("   🌐 HTML: {}", html_files.len());
-    println!("   🖼️  Images: {}", image_files.len());
-    println!("   📄 Other: {}", other_files.len());
-    println!("   🏠 Homepage: {:?}", homepage_file);
-    println!("   📁 Content folders: {:?}", content_folders);
-    println!("   🎯 Detected type: {:?}", project_type);
     
     Ok(ProjectStructure {
         root_path: folder_path.to_string(),
@@ -337,7 +359,6 @@ pub fn publish_folder(folder_path: String) -> Result<String, String> {
         return Err("Empty folder path provided".to_string());
     }
     
-    println!("🌱 Publishing folder '{}'", folder_path);
     
     // Scan folder for publishable content
     let project_structure = scan_folder(&folder_path)?;
@@ -354,17 +375,14 @@ pub fn publish_folder(folder_path: String) -> Result<String, String> {
         .unwrap_or("unnamed-site");
     
     // Generate static site from scanned files
-    println!("🔨 Generating static site...");
     let site_result = generate_static_site(&folder_path, &project_structure)?;
     
-    println!("✅ Generated static site with {} pages", site_result.page_count);
     
     // Show preview to user
     show_site_preview(&site_result.output_path)?;
     
     // TODO: Deploy to moss.pub or configured hosting (Phase 3)
     
-    println!("✅ Ready to publish '{}' with {} files", folder_name, project_structure.total_files);
     
     // Create publishing strategy message based on detected type
     let strategy_message = match project_structure.project_type {
@@ -496,8 +514,6 @@ fn show_site_preview(site_path: &str) -> Result<(), String> {
     let port = find_available_port(3000)?;
     let preview_url = format!("http://localhost:{}", port);
     
-    println!("🌐 Starting local server on port {}", port);
-    println!("🔗 Preview URL: {}", preview_url);
     
     // Start server in background
     let server_site_path = site_path.clone();
@@ -527,7 +543,6 @@ fn show_site_preview(site_path: &str) -> Result<(), String> {
     // Open browser
     open_browser(&preview_url)?;
     
-    println!("✅ Preview server started and browser opened");
     Ok(())
 }
 
@@ -554,7 +569,6 @@ async fn start_preview_server(port: u16, site_path: String) -> Result<(), Box<dy
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     let listener = TcpListener::bind(&addr).await?;
     
-    println!("📡 Preview server listening on {}", addr);
     axum::serve(listener, app).await?;
     
     Ok(())
@@ -619,11 +633,6 @@ fn open_browser(url: &str) -> Result<(), String> {
 /// let info = get_system_status(app_handle)?;
 /// println!("Running on {} with tray: {:?}", info.os, info.tray_status);
 /// ```
-#[tauri::command]
-pub fn test_publish_command(folder_path: String) -> Result<String, String> {
-    println!("🧪 Test publish command called with path: {}", folder_path);
-    publish_folder(folder_path)
-}
 
 #[tauri::command]
 pub fn get_system_status(app: tauri::AppHandle) -> Result<SystemInfo, String> {
@@ -705,7 +714,7 @@ pub fn install_finder_integration() -> Result<String, String> {
     };
     
     let services_dir = format!("{}/Library/Services", home_dir);
-    let workflow_path = format!("{}/Publish to Web.workflow", services_dir);
+    let workflow_path = format!("{}/Publish.workflow", services_dir);
     
     // Create Services directory if it doesn't exist
     if let Err(e) = fs::create_dir_all(&services_dir) {
@@ -717,69 +726,34 @@ pub fn install_finder_integration() -> Result<String, String> {
         if let Err(e) = fs::remove_dir_all(&workflow_path) {
             return Err(format!("Failed to remove existing workflow: {}", e));
         }
-        println!("🗑️ Removed existing workflow for clean reinstall");
     }
     
-    // Create the .workflow bundle directory
-    if let Err(e) = fs::create_dir_all(format!("{}/Contents", workflow_path)) {
-        return Err(format!("Failed to create workflow bundle: {}", e));
+    // Copy workflow from bundled resources
+    let exe_dir = std::env::current_exe()
+        .map_err(|e| format!("Failed to get executable path: {}", e))?
+        .parent()
+        .ok_or_else(|| "Failed to get executable directory".to_string())?
+        .to_path_buf();
+        
+    // Try Tauri bundle structure first, then fall back to development structure
+    let resource_path = exe_dir
+        .join("../Resources/_up_/resources/services/Publish.workflow")
+        .canonicalize()
+        .unwrap_or_else(|_| {
+            exe_dir
+                .join("../Resources/services/Publish.workflow")
+                .canonicalize()
+                .unwrap_or_else(|_| exe_dir.join("resources/services/Publish.workflow"))
+        });
+        
+    if !resource_path.exists() {
+        return Err("Bundled Publish.workflow not found in resources".to_string());
     }
     
-    // Create Info.plist for the workflow bundle
-    // NOTE: No NSIconName property to ensure it appears in top-level context menu
-    let info_plist = r#"<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleIdentifier</key>
-    <string>com.moss.publisher.publish-to-web</string>
-    <key>CFBundleName</key>
-    <string>Publish to Web</string>
-    <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
-    <key>CFBundleVersion</key>
-    <string>1</string>
-    <key>NSServices</key>
-    <array>
-        <dict>
-            <key>NSMenuItem</key>
-            <dict>
-                <key>default</key>
-                <string>Publish to Web</string>
-            </dict>
-            <key>NSMessage</key>
-            <string>runWorkflowAsService</string>
-            <key>NSSendFileTypes</key>
-            <array>
-                <string>public.folder</string>
-            </array>
-            <key>NSRequiredContext</key>
-            <dict>
-                <key>NSApplicationIdentifier</key>
-                <string>com.apple.finder</string>
-            </dict>
-        </dict>
-    </array>
-</dict>
-</plist>"#;
+    // Copy the entire workflow directory from resources to Services
+    copy_dir_all(&resource_path, &workflow_path)?;
     
-    // Write Info.plist
-    let info_plist_path = format!("{}/Contents/Info.plist", workflow_path);
-    if let Err(e) = fs::write(&info_plist_path, info_plist) {
-        return Err(format!("Failed to write Info.plist: {}", e));
-    }
-    
-    // Create the main workflow document (document.wflow)
-    let workflow_document = include_str!("../workflow_template.xml");
-    
-    // Write the workflow document
-    let document_path = format!("{}/Contents/document.wflow", workflow_path);
-    if let Err(e) = fs::write(&document_path, workflow_document) {
-        return Err(format!("Failed to write workflow document: {}", e));
-    }
-    
-    println!("📁 Installed Finder integration: {}", workflow_path);
-    Ok("Finder integration installed successfully! Right-click any folder → Quick Actions → 'Publish to Web'".to_string())
+    Ok("Finder integration installed successfully! Right-click any folder → 'Publish'".to_string())
 }
 
 /// Generates a static website from scanned folder contents.
@@ -819,7 +793,6 @@ fn generate_static_site(source_path: &str, project_structure: &ProjectStructure)
     }
     fs::create_dir_all(&output_dir).map_err(|e| format!("Failed to create site directory: {}", e))?;
     
-    println!("📁 Creating site in: {}", output_dir.display());
     
     // Process markdown files
     let mut documents = Vec::new();
@@ -861,8 +834,7 @@ fn generate_static_site(source_path: &str, project_structure: &ProjectStructure)
             fs::create_dir_all(parent).map_err(|e| format!("Failed to create image directory: {}", e))?;
         }
         
-        if let Err(e) = fs::copy(&source_file, &dest_file) {
-            println!("⚠️ Warning: Failed to copy image {}: {}", file_info.path, e);
+        if let Err(_e) = fs::copy(&source_file, &dest_file) {
         }
     }
     
@@ -1107,10 +1079,7 @@ mod tests {
             
             if let Ok(success_msg) = result {
                 assert!(success_msg.contains("simple-blog"), "Should mention folder name");
-                println!("✅ Test blog publishing: {}", success_msg);
             }
-        } else {
-            println!("⚠️ Test content not found at {}, skipping test", test_path);
         }
     }
 

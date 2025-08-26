@@ -43,17 +43,93 @@ use tauri::Manager;
 /// - **macOS**: Sets Accessory activation policy to prevent dock icon
 /// - **All platforms**: Creates system tray with menu items
 /// 
+/// Handles first launch setup including automatic Finder integration installation
+fn setup_first_launch(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    // Create app config directory if it doesn't exist  
+    let app_config_dir = app.path().app_config_dir()
+        .map_err(|e| format!("Failed to get app config directory: {}", e))?;
+    
+    std::fs::create_dir_all(&app_config_dir)?;
+    
+    // Check if first launch setup is complete
+    let first_launch_marker = app_config_dir.join("finder_integration_installed");
+    
+    if !first_launch_marker.exists() {
+        // First launch - attempt to install Finder integration automatically
+        match install_finder_integration() {
+            Ok(message) => {
+                // Mark installation as complete
+                std::fs::write(&first_launch_marker, "installed")?;
+                println!("✅ First launch: {}", message);
+            },
+            Err(e) => {
+                // Log error but don't fail app startup
+                eprintln!("⚠️ First launch: Failed to install Finder integration: {}", e);
+                eprintln!("💡 Users can install manually via Settings");
+            }
+        }
+    }
+    
+    Ok(())
+}
+
+/// Extracts and decodes the folder path from a moss:// deep link URL
+/// 
+/// # Arguments
+/// * `url` - Deep link URL in format "moss://publish?path=<encoded_path>"
+/// 
+/// # Returns
+/// * `Some(String)` - Decoded folder path if URL is valid
+/// * `None` - If URL format is invalid
+pub fn extract_path_from_deep_link(url: &str) -> Option<String> {
+    if url.starts_with("moss://publish?path=") {
+        if let Some(path_start) = url.find("path=") {
+            let encoded_path = &url[path_start + 5..];
+            // Decode URL-encoded path (basic space handling)
+            let decoded_path = encoded_path.replace("%20", " ");
+            return Some(decoded_path);
+        }
+    }
+    None
+}
+
+/// Handles deep link URLs by extracting the path and triggering the publish workflow
+/// 
+/// Processes URLs in the format: `moss://publish?path=<encoded_path>`
+fn handle_deep_link_url(_app: &tauri::AppHandle, url: &str) {
+    if let Some(folder_path) = extract_path_from_deep_link(url) {
+        // Directly call the publish command
+        match publish_folder(folder_path) {
+            Ok(_result) => {
+            },
+            Err(error) => {
+                eprintln!("❌ Deep link publish failed: {}", error);
+            }
+        }
+    }
+}
+
 /// # Deep link handling
-/// Listens for `moss://publish?path=<encoded_path>` URLs and triggers
-/// the publishing workflow for the specified folder.
+/// Uses command-line argument processing with single instance plugin for reliable
+/// deep link handling across platforms, especially macOS.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            
+            // Process deep link URLs from command line arguments
+            for arg in args {
+                if arg.starts_with("moss://") {
+                    handle_deep_link_url(app, &arg);
+                }
+            }
+        }))
         .setup(|app| {
-            println!("🌿 Moss app starting up...");
+        // First launch setup - install Finder integration automatically
+        setup_first_launch(&app.handle())?;
             // Configure macOS-specific behavior: prevent dock icon, stay in tray only
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
@@ -65,43 +141,26 @@ pub fn run() {
                 if let Err(e) = app.deep_link().register_all() {
                     eprintln!("❌ Failed to register deep links: {}", e);
                 } else {
-                    println!("✅ Deep links registered for development mode");
                 }
             }
             
-            // Register deep link handler for moss:// protocol URLs
-            // Processes publish requests from Finder integration
-            println!("🚀 Setting up deep link handler...");
-            let app_handle = app.handle().clone();
+            // Process deep links from startup arguments
+            let args: Vec<String> = std::env::args().collect();
+            for arg in &args[1..] {  // Skip binary name
+                if arg.starts_with("moss://") {
+                    handle_deep_link_url(&app.handle(), arg);
+                }
+            }
             
-            // Use proper Tauri v2 deep link API
+            // Also set up event-based deep link handler for comprehensive coverage
             use tauri_plugin_deep_link::DeepLinkExt;
+            let app_handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
                 let urls = event.urls();
-                println!("🔗 Deep link event received: {:?}", urls);
-                eprintln!("🔗 STDERR: Deep link event received: {:?}", urls);
                 
                 for url in &urls {
-                    println!("📥 Processing deep link URL: {}", url);
                     let url_str = url.as_str();
-                    if url_str.starts_with("moss://publish?path=") {
-                        if let Some(path_start) = url_str.find("path=") {
-                            let encoded_path = &url_str[path_start + 5..];
-                            // Decode URL-encoded path (basic space handling)
-                            let decoded_path = encoded_path.replace("%20", " ");
-                            println!("📁 Decoded folder path: {}", decoded_path);
-                            
-                            // Directly call the publish command
-                            match publish_folder(decoded_path) {
-                                Ok(result) => {
-                                    println!("✅ Deep link publish success: {}", result);
-                                },
-                                Err(error) => {
-                                    eprintln!("❌ Deep link publish failed: {}", error);
-                                }
-                            }
-                        }
-                    }
+                    handle_deep_link_url(&app_handle, url_str);
                 }
             });
             
@@ -151,7 +210,6 @@ pub fn run() {
                 .on_menu_event(move |app, event| {
                     match event.id().as_ref() {
                         "settings" => {
-                            println!("⚙️ Settings menu item clicked");
                             // Show main window as settings dialog
                             if let Some(window) = app.get_webview_window("main") {
                                 let _ = window.set_title("Moss Settings");
@@ -160,8 +218,7 @@ pub fn run() {
                             }
                         }
                         "about" => {
-                            // TODO: Implement about dialog with app info
-                            println!("ℹ️ About menu item clicked");
+                            // Future: Implement about dialog with app info
                         }
                         "quit" => {
                             // Clean exit from tray menu
@@ -205,7 +262,7 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![publish_folder, install_finder_integration, get_system_status, test_publish_command])
+        .invoke_handler(tauri::generate_handler![publish_folder, install_finder_integration, get_system_status])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -224,6 +281,50 @@ mod tests {
     /// Feature 1: Menu bar icon with dropdown menu
     /// Tests the core tray functionality that users interact with
     
+    #[test]
+    fn test_deep_link_url_parsing() {
+        // Behavior: App should correctly decode deep link URLs for publishing
+        use crate::extract_path_from_deep_link;
+        
+        // Test valid URLs with different path formats
+        assert_eq!(
+            extract_path_from_deep_link("moss://publish?path=/simple/path"),
+            Some("/simple/path".to_string()),
+            "Should parse simple paths"
+        );
+        
+        assert_eq!(
+            extract_path_from_deep_link("moss://publish?path=/path%20with%20spaces"),
+            Some("/path with spaces".to_string()),
+            "Should decode URL-encoded spaces"
+        );
+        
+        assert_eq!(
+            extract_path_from_deep_link("moss://publish?path=/Users/test/My%20Documents"),
+            Some("/Users/test/My Documents".to_string()),
+            "Should handle complex paths with spaces"
+        );
+        
+        // Test invalid URLs
+        assert_eq!(
+            extract_path_from_deep_link("https://example.com"),
+            None,
+            "Should reject non-moss URLs"
+        );
+        
+        assert_eq!(
+            extract_path_from_deep_link("moss://invalid"),
+            None,
+            "Should reject moss URLs without path parameter"
+        );
+        
+        assert_eq!(
+            extract_path_from_deep_link("moss://publish"),
+            None,
+            "Should reject URLs missing path parameter"
+        );
+    }
+
     #[test]
     fn test_content_analysis_homepage_detection() {
         // Behavior: App should correctly identify homepage files by priority

@@ -66,6 +66,30 @@ This systematic review prevents losing valuable lessons learned during developme
 - **macOS Issue**: Protocol registration requires app installation, not available in `npm run tauri dev`
 - **Production Reality**: Works fine after build/install - development limitation only
 - **Workaround**: Direct command testing via UI buttons during development
+- **Reference**: [Tauri Deep Link Plugin Documentation](https://v2.tauri.app/plugin/deep-link/)
+
+### macOS Services Integration Insights
+
+**Bundle File Copying vs Programmatic Creation:**
+
+- **Preferred**: Copy pre-built `.workflow` bundles from app resources to `~/Library/Services/`
+- **Why**: More reliable than AppleScript automation, version controlled, cross-macOS compatible
+- **Resource Path**: Tauri bundles resources at `Contents/Resources/_up_/resources/` in production
+- **Reference**: [Apple Automator Documentation](https://developer.apple.com/library/archive/documentation/LanguagesUtilities/Conceptual/MacAutomationScriptingGuide/MakeaSystem-WideService.html)
+
+**Services Menu Placement:**
+
+- **Key Finding**: Remove `NSIconName` property from Info.plist to show in main context menu
+- **Without NSIconName**: Service appears in main context menu
+- **With NSIconName**: Service appears in "Quick Actions" submenu (requires extra click)
+- **Command**: `plutil -remove NSServices.0.NSIconName /path/to/workflow/Contents/Info.plist`
+
+**First Launch Integration:**
+
+- **Pattern**: Automatic installation on first launch using marker files
+- **Location**: `~/Library/Application Support/com.moss.publisher/finder_integration_installed`
+- **Security**: No elevated permissions required (`~/Library/Services/` is user-writable)
+- **Graceful degradation**: App functions even if automatic installation fails
 
 ---
 
@@ -302,6 +326,14 @@ When multiple valid approaches exist, choose based on:
 - Consolidate duplicate test functionality instead of maintaining parallel implementations
 - Remove test files that duplicate main application capabilities
 - Keep file structure compact and self-explanatory - extra files create cognitive load
+
+**Testing Strategy for System Integration:**
+
+- **Unit Tests**: Pure functions (content analysis, URL parsing, business logic)
+- **Integration Tests**: System components requiring macOS services (Finder integration, tray icons)
+- **E2E Tests**: Complete user workflows (right-click → publish → browser opens)
+- **Boundary**: Test user-observable behavior, not implementation details
+- **Reference**: Following patterns from established macOS app testing practices
 
 ### Compilation Error Patterns
 
