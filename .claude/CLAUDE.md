@@ -15,8 +15,8 @@ When asked to document an idea:
 1. **Choose the right location** using the current file structure:
 
    - **Function / feature-specific concepts** → code comments
-   - **Today's learning** → `docs/developer/journal`, with today's date as file name
-   - **Project-specific plans** → `docs/developer/implementation-plan.md`
+   - **Today's learning** → `docs/public/journal`, with today's date as file name
+   - **Project-specific plans** → `docs/internal/development/implementation.md`
    - **General good practices** → `.claude/CLAUDE.md`
 
 2. **Read the target file** to understand existing structure and style
@@ -30,6 +30,41 @@ When asked to document an idea:
 6. **Add references** - add references whenever you can be certain with the validity of the url.
 
 This approach maintains document quality and prevents fragmentation of related concepts across multiple files.
+
+## Writing Guidelines
+
+### Persona & Voice
+
+Working at Symbiosis Lab, exploring human-information system coevolution. This context shapes our writing but doesn't dominate it. Let the work speak for itself.
+
+#### Subtle Presence
+
+- Write "we" naturally (human-AI collaboration implied)
+- Show symbiosis through decisions, not declarations
+- Let readers discover the collaborative nature
+- Focus on the work, not the workers
+
+#### Tone
+
+- **Concise**: Every word earns its place
+- **Plain**: Technical precision without jargon
+- **Restrained**: Passion constrained by rationale
+- **Precise**: Facts verified through git history and code
+
+#### Trust Through Truth
+
+- **Never embellish**: Don't invent struggles or timelines
+- **Verify claims**: Check git logs, code, documentation
+- **Acknowledge uncertainty**: "Possibly" or "likely" when unsure
+- **Context over drama**: The real story is interesting enough
+
+#### Journal Writing Structure
+
+1. **Hook**: What problem did we face?
+2. **Journey**: What did we try? What worked?
+3. **Insight**: What did we learn?
+4. **Impact**: Why does this matter?
+5. **Technical notes**: Brief, at the end, linked
 
 ## Insight Review Process
 
@@ -48,52 +83,6 @@ When asked to review insights:
 4. **Document for retention** - capture insights that tend to be forgotten under pressure but significantly impact outcomes
 
 This systematic review prevents losing valuable lessons learned during development cycles.
-
-## Architecture Insights from Implementation
-
-### HTTP Server vs file:// for Preview
-
-- **Problem**: `file://` URLs have CORS restrictions and don't match real deployment behavior
-- **Solution**: Local Axum HTTP server provides proper web environment
-- **Key**: Automatic port detection, cross-platform browser opening
-
-### Output Directory Strategy
-
-- **Wrong**: System temp directories are hard to find and get cleaned up
-- **Right**: Co-locate generated sites with source in `.moss/site/` (git-ignored)
-- **Benefits**: Discoverable, persistent, follows standard patterns (.next, dist, etc.)
-
-### Deep Link Development Limitation
-
-- **macOS Issue**: Protocol registration requires app installation, not available in `npm run tauri dev`
-- **Production Reality**: Works fine after build/install - development limitation only
-- **Workaround**: Direct command testing via UI buttons during development
-- **Reference**: [Tauri Deep Link Plugin Documentation](https://v2.tauri.app/plugin/deep-link/)
-
-### macOS Services Integration Insights
-
-**Bundle File Copying vs Programmatic Creation:**
-
-- **Preferred**: Copy pre-built `.workflow` bundles from app resources to `~/Library/Services/`
-- **Why**: More reliable than AppleScript automation, version controlled, cross-macOS compatible
-- **Resource Path**: Tauri bundles resources at `Contents/Resources/_up_/resources/` in production
-- **Reference**: [Apple Automator Documentation](https://developer.apple.com/library/archive/documentation/LanguagesUtilities/Conceptual/MacAutomationScriptingGuide/MakeaSystem-WideService.html)
-
-**Services Menu Placement:**
-
-- **Key Finding**: Remove `NSIconName` property from Info.plist to show in main context menu
-- **Without NSIconName**: Service appears in main context menu
-- **With NSIconName**: Service appears in "Quick Actions" submenu (requires extra click)
-- **Command**: `plutil -remove NSServices.0.NSIconName /path/to/workflow/Contents/Info.plist`
-
-**First Launch Integration:**
-
-- **Pattern**: Automatic installation on first launch using marker files
-- **Location**: `~/Library/Application Support/com.moss.publisher/finder_integration_installed`
-- **Security**: No elevated permissions required (`~/Library/Services/` is user-writable)
-- **Graceful degradation**: App functions even if automatic installation fails
-
----
 
 # Development Guidelines
 

@@ -2,17 +2,19 @@
 
 > Building slowly, growing inevitably
 
-## Development Philosophy
+## The Three-Year Vision
 
-Build first, fund second. We have runway to build without compromise. Each phase proves value before moving to the next.
+**Year 1: Foundation** - Build core moss, reach 100 users  
+**Year 2: Growth** - Scale to sustainable revenue, reduce grant dependence  
+**Year 3: Ecosystem** - Self-sustaining infrastructure for the open web
 
 ## Phase 0: Silent Foundation (Aug-Oct 2025)
 **Build the irreducible core**
 
 ### Technical Milestones
-- Tauri app with menu bar presence
-- Right-click folder → Publish flow  
-- Markdown → HTML with beautiful defaults
+- Tauri app with menu bar presence ✅
+- Right-click folder → Publish flow ✅
+- Markdown → HTML with beautiful defaults ✅
 - moss.pub deployment (zero config)
 - GitHub Pages for developers
 
@@ -97,18 +99,6 @@ Build first, fund second. We have runway to build without compromise. Each phase
 3. **Progressive disclosure** - Power features hidden until needed
 4. **Local-first always** - Network is optional
 5. **Standards over invention** - Use existing protocols
-
-## Open Technical Decisions
-
-Decisions to make by Phase 1:
-- Template engine: Tera vs Handlebars
-- Config format: TOML vs YAML
-- Theme format: CSS-only vs full templates
-
-Decisions to make by Phase 2:
-- Plugin distribution: GitHub vs custom registry
-- Spore deployment: Docker vs binary
-- Lichen framework: Web Components vs vanilla JS
 
 ## Development Velocity
 

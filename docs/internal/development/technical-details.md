@@ -1,35 +1,14 @@
-# moss Technical Architecture
+# moss Technical Implementation Details
 
 ## Core Stack
 
 **Desktop Application**
-
 - Tauri v2 (Rust backend, web frontend)
 - Menu bar/system tray only (no main window)
 - Native OS integration for right-click context menu on folders
 - ~15MB binary size target
 
-**System Tray Menu**
-
-- Settings (preferences, configuration)
-- About
-- Quit
-
-**Folder Context Menu Integration**
-
-- "Publish to Web" option when right-clicking any folder
-- Triggers site generation and deployment workflow
-- No folder selection dialog needed - uses the clicked folder
-
-**Static Site Generator**
-
-- Custom Rust implementation
-- Embedded in Tauri binary
-- Input: Markdown, HTML, images
-- Output: Optimized static HTML/CSS/JS
-
 **Frontend Runtime**
-
 - Vanilla JS for core
 - React for preferences UI only
 - No framework for generated sites (pure HTML/CSS)
@@ -96,7 +75,7 @@ fn build_site(source: PathBuf) -> Result<Site> {
 // Or want full infrastructure control
 ```
 
-## Plugin System
+## Plugin System Implementation
 
 **JavaScript/TypeScript plugins**
 
@@ -142,14 +121,12 @@ interface mossPlugin {
 ```
 
 **Core (Rust/Tauri) - Minimal:**
-
 - File system watching
 - Basic Markdown → HTML
 - Plugin loader/sandbox
 - moss.pub deployment
 
 **Everything Else is a Plugin:**
-
 - Themes (CSS injection)
 - Syntax highlighting (build hook)
 - Image optimization (file processor)
@@ -159,7 +136,7 @@ interface mossPlugin {
 - RSS generation (post-build)
 - Deployment targets (deploy providers)
 
-## Social Protocols
+## Social Protocols Implementation
 
 **Micropub** (Incoming)
 
@@ -202,7 +179,7 @@ database = "sqlite"     # or "postgres"
 storage = "local"       # or "s3"
 ```
 
-## Lichen Widget
+## Lichen Widget Implementation
 
 Pure JavaScript, no framework:
 
@@ -239,7 +216,6 @@ class Lichen {
 ## Dependencies
 
 **Rust Crates** (Core)
-
 - `tauri` - Desktop framework
 - `tokio` - Async runtime
 - `pulldown-cmark` - Markdown parsing
@@ -247,11 +223,39 @@ class Lichen {
 - `git2` - Git operations
 
 **Avoid**
-
 - Node.js dependencies in core
 - Native binary dependencies
 - Platform-specific code (where possible)
 - External services for core features
+
+## Window Management Implementation
+
+**Transparent Window Implementation**
+
+```rust
+WindowBuilder::new(app, "control_zone", WindowUrl::App("zone.html"))
+    .decorations(false)      // Remove window chrome
+    .transparent(true)       // Transparent background
+    .always_on_top(true)     // Float above other windows  
+    .skip_taskbar(true)      // Hide from taskbar
+    .build()
+```
+
+**Platform-Specific Transparency Support:**
+- **macOS**: Full vibrancy effects via `NSVisualEffectMaterial`
+- **Windows**: Blur effects with `window-vibrancy` plugin
+- **Linux**: Basic transparency (compositor-dependent)
+
+**Magnetic Positioning System**
+
+Windows maintain spatial relationships using real-time position tracking:
+
+```javascript
+// Main preview window coordinates satellite positions
+await appWindow.onMoved(async ({ payload: position }) => {
+    await updateSatellitePositions(position);
+});
+```
 
 ## API Design Philosophy
 
@@ -284,13 +288,11 @@ src-tauri/src/
 ```
 
 **File Responsibilities:**
-
 - **`main.rs`** - Tauri app setup, tray icon creation, event listeners, entry point
 - **`types.rs`** - All structs and enums (`ProjectStructure`, `SystemInfo`, `TrayVisibilityStatus`, etc.)
 - **`commands.rs`** - Tauri commands, file scanning, content analysis, system detection
 
 **Design Principles:**
-
 - Keep tests with the code they test (no separate test files)
 - Separate data from logic from app setup
 - Follow Rust conventions and idiomatic patterns
@@ -298,6 +300,38 @@ src-tauri/src/
 - Self-explanatory file names that match their contents
 
 This structure balances maintainability with simplicity, avoiding over-engineering while keeping the codebase organized as it grows from the current single 1,300+ line file.
+
+## Implementation Decisions
+
+### HTTP Server vs file:// for Preview
+
+**Problem**: `file://` URLs have CORS restrictions and don't match real deployment behavior
+
+**Solution**: Local Axum HTTP server provides proper web environment
+
+**Benefits**:
+- No CORS issues during development
+- Relative paths work correctly
+- Behavior matches deployed sites exactly
+- Cross-platform browser opening
+- Automatic port detection (starting at 8080)
+
+**Trade-offs**: +50 lines of code, +2 dependencies (Axum, tower-http), but eliminates entire class of preview/deployment mismatches
+
+### Output Directory Strategy
+
+**Problem**: System temp directories are hard to find and get cleaned up unexpectedly
+
+**Solution**: Co-locate generated sites with source in `.moss/site/` (git-ignored)
+
+**Benefits**:
+- Discoverable and persistent
+- Follows standard patterns (`.next`, `dist/`, `target/`)
+- User can examine generated HTML
+- Survives system cleanup cycles
+- Clear association between source and output
+
+**Implementation**: Create `.moss/site/` in same directory as source files, add to `.gitignore` patterns
 
 ## Open Decisions
 
@@ -308,4 +342,4 @@ This structure balances maintainability with simplicity, avoiding over-engineeri
 
 ---
 
-_Architecture decisions prioritize: simplicity, portability, user control, and zero-configuration operation._
+_Implementation decisions prioritize: simplicity, portability, user control, and zero-configuration operation._

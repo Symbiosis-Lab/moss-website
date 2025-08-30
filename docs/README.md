@@ -2,38 +2,43 @@
 
 > Building infrastructure for the next generation of the web
 
-## Documentation Structure
+## Public Website Content
 
-This documentation is organized into two main areas:
+**[public/](./public/)** - Website content compiled by moss
 
-### 📈 [Strategic Documentation](./strategic/)
+- **[README.md](./public/README.md)** - Main landing page
+- **[philosophy.md](./public/philosophy.md)** - Core beliefs and approach
+- **[architecture.md](./public/architecture.md)** - Technical design and decisions
+- **[roadmap.md](./public/roadmap.md)** - Development timeline and milestones
+- **[journal/](./public/journal/)** - Development progress and discoveries
 
-Business planning, growth strategy, and organizational direction.
+## Internal Documentation
 
-- **Strategic Overview** - Vision, principles, and success metrics
-- **Growth Strategy** - User acquisition and community building
-- **Funding Strategy** - Grant timeline and revenue planning
-- **Financial Planning** - Budget breakdown and runway analysis
-- **NYC Campaigns** - Content experiments and cultural moments
+**[internal/](./internal/)** - Team planning and detailed references
 
-### 🔧 [Developer Documentation](./developer/)
+### Strategy
+- **[funding.md](./internal/strategy/funding.md)** - Grant timeline and revenue planning
+- **[operations.md](./internal/strategy/operations.md)** - Financial planning and metrics
+- **[community.md](./internal/strategy/community.md)** - User community targeting
+- **[research/](./internal/strategy/research/)** - Market analysis and opportunities
 
-Technical implementation, architecture, and contributor guides.
+### Development
+- **[implementation.md](./internal/development/implementation.md)** - Current progress and technical status
+- **[testing.md](./internal/development/testing.md)** - Test philosophy and practices
+- **[api.md](./internal/development/api.md)** - Commands, functions, interfaces
+- **[design-system.md](./internal/development/design-system.md)** - Visual principles and patterns
 
-- **Developer Guide** - File structure, API reference, workflows
-- **Technical Architecture** - System design and technology decisions  
-- **Development Roadmap** - Technical milestones and implementation phases
+## Navigation
 
-## Quick Navigation
+**For Users & Contributors:**
+- Start with [public/README.md](./public/README.md)
+- Follow development in [journal/](./public/journal/)
+- Understand the technical approach in [architecture.md](./public/architecture.md)
 
-**For Contributors:**
-- Start with [Developer Documentation](./developer/) → [Developer Guide](./developer/developer-guide.md)
-- Review [Technical Architecture](./developer/technical-architecture.md) for design context
-
-**For Stakeholders:**  
-- Start with [Strategic Documentation](./strategic/) → [Strategic Overview](./strategic/README.md)
-- Review [Growth Strategy](./strategic/growth-strategy.md) and [Funding Strategy](./strategic/funding-strategy.md)
+**For Team Members:**
+- Strategic planning in [internal/strategy/](./internal/strategy/)
+- Technical reference in [internal/development/](./internal/development/)
 
 ---
 
-_Like moss in nature, we grow slowly but inevitably._
+*This documentation is itself published through moss, demonstrating the simplest use case: turning markdown into a website.*
