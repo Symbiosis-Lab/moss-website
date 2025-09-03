@@ -149,7 +149,8 @@ mod tests {
 
     #[test]
     fn test_can_publish_logic() {
-        let folder_path = PathBuf::from("/Users/liuguo/repo/moss"); // Existing path
+        // Use current directory which should always exist
+        let folder_path = std::env::current_dir().unwrap();
         let mut state = PreviewState::new(
             folder_path,
             "http://localhost:8080".to_string()

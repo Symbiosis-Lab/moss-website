@@ -41,6 +41,27 @@ Local files → moss → Static site → Your infrastructure
 **Spore** - Optional ActivityPub/WebMention server  
 **Lichen** - JavaScript widget for comments on any static site
 
+## Theme Ecosystem
+
+moss works with themes from any static site generator:
+
+**Theme-First Journey**
+1. Browse themes from Jekyll, Hugo, Zola, Eleventy
+2. Choose the design you love
+3. moss downloads the appropriate SSG automatically
+4. Your content + chosen theme = beautiful website
+
+**No Learning Curve**
+- Keep your folder structure exactly as you want it
+- moss adapts your files to work with any SSG
+- No configuration files to learn
+- No build tools to install
+
+**Progressive Enhancement**
+- Start simple: moss built-in SSG (instant, zero config)
+- Need themes? Automatic SSG integration
+- Want advanced features? Full SSG ecosystem access
+
 For technical details, see [Architecture](architecture.md).
 
 ## Current Status

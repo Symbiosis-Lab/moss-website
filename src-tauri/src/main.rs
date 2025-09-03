@@ -1,12 +1,12 @@
 //! # moss - Desktop Publishing App
 //!
-//! A Tauri-based desktop application that allows users to publish folders as websites
+//! A Tauri-based desktop application that allows users to compile folders into websites
 //! with right-click integration on macOS Finder.
 //!
 //! ## Backend API
 //!
 //! The backend exposes a minimal set of Tauri commands:
-//! - [`publish_folder`] - Core publishing functionality
+//! - [`compile_and_serve`] - Core compilation functionality
 //! - [`install_finder_integration`] - Installs macOS Finder context menu integration
 //! - [`get_system_status`] - Returns basic system information
 //!
@@ -104,7 +104,7 @@ fn handle_deep_link_url(app: &tauri::AppHandle, url: &str) {
         let path = std::path::PathBuf::from(&folder_path);
         
         // Step 1: Build the site (compile files, start local server)
-        match publish_folder(folder_path.clone()) {
+        match commands::compile_and_serve(folder_path.clone()) {
             Ok(result) => {
                 println!("✅ Build completed: {}", result);
                 
@@ -195,7 +195,7 @@ pub fn run() {
             };
 
             // Build system tray menu with standard items
-            let publish_i = MenuItem::with_id(app, "publish", "Publish...", true, None::<&str>)?;
+            let publish_i = MenuItem::with_id(app, "publish", "Compile...", true, None::<&str>)?;
             let settings_i = MenuItem::with_id(app, "settings", "Settings...", true, None::<&str>)?;
             let about_i = MenuItem::with_id(app, "about", "About moss", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
@@ -237,15 +237,15 @@ pub fn run() {
                 .on_menu_event(move |app, event| {
                     match event.id().as_ref() {
                         "publish" => {
-                            // Trigger directory picker and publish workflow
+                            // Trigger directory picker and compile workflow
                             let app_handle = app.clone();
                             tauri::async_runtime::spawn(async move {
-                                match commands::publish_with_directory_picker(app_handle).await {
+                                match commands::compile_with_directory_picker(app_handle).await {
                                     Ok(message) => {
                                         println!("✅ {}", message);
                                     },
                                     Err(error) => {
-                                        eprintln!("❌ Publish failed: {}", error);
+                                        eprintln!("❌ Compile failed: {}", error);
                                     }
                                 }
                             });
@@ -278,7 +278,7 @@ pub fn run() {
                 Ok(tray) => {
                     // Set helpful tooltip for user guidance
                     if let Some(retrieved_tray) = app.tray_by_id(tray.id()) {
-                        let _ = retrieved_tray.set_tooltip(Some("moss - Right-click to publish"));
+                        let _ = retrieved_tray.set_tooltip(Some("moss - Right-click to compile"));
                     }
                     let _tray = tray; // Keep tray alive
                 },
@@ -305,7 +305,7 @@ pub fn run() {
         })
         .manage(PreviewWindowManager::new())
         .invoke_handler(tauri::generate_handler![
-            publish_folder, 
+            compile_and_serve,
             install_finder_integration, 
             get_system_status,
             open_preview_window,
@@ -315,7 +315,7 @@ pub fn run() {
             remove_syndication_target,
             get_preview_state,
             close_preview_window_cmd,
-            publish_with_directory_picker
+            compile_with_directory_picker
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -323,9 +323,143 @@ pub fn run() {
 
 /// Application entry point.
 /// 
-/// Delegates to [`run()`] function for Tauri application lifecycle management.
+/// Handles both GUI mode (default) and CLI mode based on command line arguments.
+/// 
+/// # CLI Usage
+/// - `moss compile <folder_path>` - Compile site from folder
+/// - `moss compile <folder_path> --serve` - Compile and serve site
+/// - `moss compile <folder_path> --watch` - Compile and watch for changes  
+/// - `moss compile <folder_path> --serve --watch` - Compile, serve, and watch
+/// - `moss --help` - Show help message
+/// 
+/// # GUI Mode
+/// - No arguments: Launch Tauri GUI application
 fn main() {
-    run();
+    let args: Vec<String> = std::env::args().collect();
+    
+    // Check for CLI mode arguments
+    if args.len() > 1 {
+        match args[1].as_str() {
+            "compile" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: moss compile <folder_path> [--serve] [--watch]");
+                    std::process::exit(1);
+                }
+                let folder_path = &args[2];
+                let serve_flag = args.contains(&"--serve".to_string());
+                let watch_flag = args.contains(&"--watch".to_string());
+                run_cli_compile(folder_path, serve_flag, watch_flag);
+            }
+            "--help" | "-h" => {
+                print_help();
+            }
+            _ => {
+                // Check if it's a deep link URL, otherwise show help
+                if args[1].starts_with("moss://") {
+                    // Let GUI mode handle deep links
+                    run();
+                } else {
+                    eprintln!("Unknown command: {}", args[1]);
+                    print_help();
+                    std::process::exit(1);
+                }
+            }
+        }
+    } else {
+        // No arguments - launch GUI mode
+        run();
+    }
+}
+
+/// Prints CLI help information
+fn print_help() {
+    println!("moss - Desktop Publishing App
+
+USAGE:
+    moss [COMMAND] [OPTIONS]
+
+COMMANDS:
+    compile <folder>               Compile a website from the specified folder
+    compile <folder> --serve       Compile and serve the website  
+    compile <folder> --watch       Compile and watch for file changes
+    compile <folder> --serve --watch  Compile, serve, and watch for changes
+    
+OPTIONS:
+    -h, --help                     Show this help message
+
+EXAMPLES:
+    moss compile docs/public/      # Compile docs/public folder (build only)
+    moss compile ~/blog/ --serve   # Compile and serve ~/blog folder  
+    moss compile ~/blog/ --watch   # Compile and watch ~/blog for changes
+    moss                          # Launch GUI application
+
+For GUI usage, simply run moss without arguments or use system tray integration.");
+}
+
+/// CLI mode: Compile website with optional serve and watch modes
+fn run_cli_compile(folder_path: &str, serve: bool, watch: bool) {
+    use std::path::Path;
+    
+    // Validate folder path
+    let path = Path::new(folder_path);
+    if !path.exists() {
+        eprintln!("❌ Error: Folder does not exist: {}", folder_path);
+        std::process::exit(1);
+    }
+    
+    if !path.is_dir() {
+        eprintln!("❌ Error: Path is not a directory: {}", folder_path);
+        std::process::exit(1);
+    }
+    
+    println!("🏗️  Compiling website from: {}", folder_path);
+    
+    // Build the site using the compile_folder function
+    match commands::compile_folder(folder_path.to_string()) {
+        Ok(result) => {
+            println!("✅ {}", result);
+            
+            if serve || watch {
+                if serve {
+                    // Extract the output path from result to start server
+                    let site_path = Path::new(folder_path).join(".moss/site");
+                    if site_path.exists() {
+                        // Start the server (this function exists in commands module)
+                        if let Err(e) = commands::start_site_server_cli(&site_path.to_string_lossy().to_string()) {
+                            eprintln!("❌ Failed to start server: {}", e);
+                            std::process::exit(1);
+                        }
+                        println!("🚀 Site is now serving at http://localhost:8080");
+                    } else {
+                        eprintln!("❌ Site directory not found at: {}", site_path.display());
+                        std::process::exit(1);
+                    }
+                }
+                if watch {
+                    println!("👀 Watching for file changes...");
+                }
+                println!("📝 Press Ctrl+C to stop");
+                
+                // Keep running until Ctrl+C if serve or watch is enabled
+                let (tx, rx) = std::sync::mpsc::channel();
+                ctrlc::set_handler(move || {
+                    println!("\n🛑 Stopping...");
+                    tx.send(()).expect("Could not send signal on channel.");
+                }).expect("Error setting Ctrl+C handler");
+                
+                // Wait for Ctrl+C
+                rx.recv().expect("Could not receive from channel.");
+                println!("✅ Stopped");
+            } else {
+                println!("✅ Compilation complete! Generated files are in .moss/site/");
+                println!("💡 Use --serve to start a local server, or --watch to watch for changes");
+            }
+        },
+        Err(error) => {
+            eprintln!("❌ Build failed: {}", error);
+            std::process::exit(1);
+        }
+    }
 }
 
 
@@ -337,7 +471,7 @@ mod tests {
     
     #[test]
     fn test_deep_link_url_parsing() {
-        // Behavior: App should correctly decode deep link URLs for publishing
+        // Behavior: App should correctly decode deep link URLs for compilation
         use crate::extract_path_from_deep_link;
         
         // Test valid URLs with different path formats
@@ -407,7 +541,7 @@ mod tests {
     
     #[test] 
     fn test_content_analysis_folder_detection() {
-        // Behavior: App should identify folders containing publishable content
+        // Behavior: App should identify folders containing content suitable for compilation
         use crate::types::FileInfo;
         use crate::commands::*;
         

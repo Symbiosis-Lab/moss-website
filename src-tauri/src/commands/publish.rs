@@ -1,4 +1,4 @@
-//! Tauri commands and business logic for moss publishing system
+//! Tauri commands and business logic for moss compilation and publishing system
 
 use crate::types::*;
 use walkdir::WalkDir;
@@ -102,7 +102,7 @@ pub fn detect_homepage_file(files: &[FileInfo]) -> Option<String> {
 
 /// Identifies subdirectories containing document files.
 /// 
-/// Scans the file list to find folders that contain publishable content
+/// Scans the file list to find folders that contain content suitable for compilation
 /// (markdown, Pages, Word documents). These folders typically represent
 /// content collections like blog posts, projects, or documentation sections.
 /// 
@@ -317,54 +317,27 @@ fn scan_folder(folder_path: &str) -> Result<ProjectStructure, String> {
     })
 }
 
-/// Tauri command to publish a folder as a static website.
+/// Compiles a folder into a static website with optional server startup.
 /// 
-/// Triggered by deep links from Finder integration or direct API calls.
-/// Analyzes the folder structure and prepares content for static site
-/// generation and deployment.
-/// 
-/// # Workflow
-/// 1. Validates the provided folder path
-/// 2. Recursively scans and categorizes all files
-/// 3. Analyzes content organization patterns
-/// 4. Determines optimal site structure
-/// 5. Generates deployment URL suggestion
+/// This is the unified compilation function used by both CLI and GUI modes.
+/// It generates the static site files and optionally starts a preview server.
 /// 
 /// # Arguments
 /// * `folder_path` - Absolute path to the folder containing website content
+/// * `auto_serve` - Whether to automatically start preview server after compilation
 /// 
 /// # Returns
-/// * `Ok(String)` - Success message with scan summary and deployment URL
+/// * `Ok(String)` - Success message with compilation summary (and server info if started)
 /// * `Err(String)` - Error message describing what went wrong
-/// 
-/// # Errors
-/// * Empty folder path provided
-/// * Folder does not exist
-/// * No publishable files found
-/// * Permission denied during scanning
-/// 
-/// # Future Implementation
-/// Currently performs analysis only. Future versions will:
-/// - Generate static HTML/CSS from content
-/// - Deploy to moss.pub hosting
-/// - Support custom domains and themes
-/// 
-/// # Example
-/// ```rust
-/// let result = publish_folder("/Users/alice/my-blog".to_string());
-/// // Returns: "📁 'my-blog': 15 files scanned. Blog-style site..."
-/// ```
-#[tauri::command]
-pub fn publish_folder(folder_path: String) -> Result<String, String> {
+pub fn compile_folder_with_options(folder_path: String, auto_serve: bool) -> Result<String, String> {
     if folder_path.is_empty() {
         return Err("Empty folder path provided".to_string());
     }
     
-    
-    // Scan folder for publishable content
+    // Scan folder for content suitable for compilation
     let project_structure = scan_folder(&folder_path)?;
     
-    // Basic validation - ensure we have some content to publish
+    // Basic validation - ensure we have some content to compile
     if project_structure.total_files == 0 {
         return Err("No files found in the specified folder".to_string());
     }
@@ -378,14 +351,7 @@ pub fn publish_folder(folder_path: String) -> Result<String, String> {
     // Generate static site from scanned files
     let site_result = generate_static_site(&folder_path, &project_structure)?;
     
-    
-    // Start local preview server (browser opening handled by preview window)
-    start_site_server(&site_result.output_path)?;
-    
-    // TODO: Deploy to moss.pub or configured hosting (Phase 3)
-    
-    
-    // Create publishing strategy message based on detected type
+    // Create compilation strategy message based on detected type
     let strategy_message = match project_structure.project_type {
         ProjectType::HomepageWithCollections => "Homepage with organized content collections detected",
         ProjectType::SimpleFlatSite => "Simple site with all pages in navigation menu",
@@ -398,15 +364,36 @@ pub fn publish_folder(folder_path: String) -> Result<String, String> {
         String::new()
     };
     
-    Ok(format!(
-        "📁 '{}': {} files scanned. {} {}. Content folders: {:?}. Ready for https://{}.moss.pub",
+    let base_message = format!(
+        "📁 '{}': {} files scanned. {} {}. Content folders: {:?}. Site generated at {}",
         folder_name,
         project_structure.total_files,
         strategy_message,
         homepage_info,
         project_structure.content_folders,
-        folder_name.replace(" ", "-").to_lowercase()
-    ))
+        site_result.output_path
+    );
+
+    // Optionally start preview server
+    if auto_serve {
+        start_site_server(&site_result.output_path)?;
+        Ok(format!("{}\n🌐 Preview server started! Access at http://localhost:8080", base_message))
+    } else {
+        Ok(base_message)
+    }
+}
+
+/// CLI-compatible compile function (no auto-serve).
+/// Maintains backward compatibility for CLI usage.
+pub fn compile_folder(folder_path: String) -> Result<String, String> {
+    compile_folder_with_options(folder_path, false)
+}
+
+/// Tauri command for GUI compilation workflow.
+/// Automatically starts preview server for immediate GUI preview.
+#[tauri::command]
+pub fn compile_and_serve(folder_path: String) -> Result<String, String> {
+    compile_folder_with_options(folder_path, true)
 }
 
 /// Determines whether the system tray icon is actually visible to the user.
@@ -482,6 +469,45 @@ fn is_tray_icon_actually_visible() -> bool {
 #[cfg(not(target_os = "macos"))]
 fn is_tray_icon_actually_visible() -> bool {
     true
+}
+
+/// Starts a local HTTP server for CLI usage (synchronous, doesn't return immediately).
+/// 
+/// This version is for CLI usage where we want to start the server and keep it running.
+/// 
+/// # Arguments
+/// * `site_path` - Path to the generated site directory containing index.html
+/// 
+/// # Returns
+/// * `Ok(())` - Successfully started server
+/// * `Err(String)` - Failed to start server
+pub fn start_site_server_cli(site_path: &str) -> Result<(), String> {
+    let site_path = site_path.to_string();
+    
+    // Check if index.html exists
+    let index_path = Path::new(&site_path).join("index.html");
+    if !index_path.exists() {
+        return Err("Generated site has no index.html file".to_string());
+    }
+    
+    // Use port 8080 for consistency
+    let port = if is_port_available(8080) { 8080 } else { find_available_port(8080)? };
+    
+    // Start server in background for CLI
+    let server_site_path = site_path.clone();
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            if let Err(e) = start_preview_server(port, server_site_path).await {
+                eprintln!("❌ CLI server error: {}", e);
+            }
+        });
+    });
+    
+    // Give server a moment to start
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    
+    Ok(())
 }
 
 /// Starts a local HTTP server to serve the generated website.
@@ -657,7 +683,7 @@ pub fn get_system_status(app: tauri::AppHandle) -> Result<SystemInfo, String> {
     })
 }
 
-/// Tauri command to install macOS Finder integration for one-click publishing.
+/// Tauri command to install macOS Finder integration for one-click compilation.
 /// 
 /// Creates an Automator workflow that adds "Publish to Web" to the Finder
 /// context menu when right-clicking folders. This provides seamless integration
@@ -674,7 +700,7 @@ pub fn get_system_status(app: tauri::AppHandle) -> Result<SystemInfo, String> {
 /// - "Publish to Web" appears in the context menu
 /// - Clicking it URL-encodes the folder path
 /// - Opens `moss://publish?path=<encoded_path>`
-/// - Triggers the publishing workflow in this app
+/// - Triggers the compilation workflow in this app
 /// 
 /// # Security
 /// The generated shell script uses only built-in macOS commands:
@@ -836,11 +862,19 @@ fn generate_static_site(source_path: &str, project_structure: &ProjectStructure)
         }
     }
     
-    // Generate index.html if no homepage exists
-    if project_structure.homepage_file.is_none() && !documents.is_empty() {
-        let index_html = generate_index_page(&documents, project_structure)?;
-        fs::write(output_dir.join("index.html"), index_html).map_err(|e| format!("Failed to write index.html: {}", e))?;
-        page_count += 1;
+    // Generate index.html - either standalone blog feed or combined with homepage content
+    if !documents.is_empty() {
+        if project_structure.homepage_file.is_some() {
+            // There's a homepage file (likely README.md) - combine it with blog feed
+            let index_html = generate_homepage_with_blog_feed(&documents, project_structure)?;
+            fs::write(output_dir.join("index.html"), index_html).map_err(|e| format!("Failed to write index.html: {}", e))?;
+            page_count += 1;
+        } else {
+            // No homepage file - generate pure blog feed
+            let index_html = generate_index_page(&documents, project_structure)?;
+            fs::write(output_dir.join("index.html"), index_html).map_err(|e| format!("Failed to write index.html: {}", e))?;
+            page_count += 1;
+        }
     }
     
     let site_title = project_structure.homepage_file.clone()
@@ -900,6 +934,203 @@ fn process_markdown_file(file_path: &str, content: &str) -> Result<ParsedDocumen
 fn generate_html_page(doc: &ParsedDocument, all_docs: &[ParsedDocument], _project: &ProjectStructure) -> Result<String, String> {
     let navigation = generate_navigation(all_docs);
     
+    // Determine CSS path based on document depth
+    let css_path = if doc.url_path.contains('/') {
+        // Document is in subdirectory, use relative path to go up
+        let depth = doc.url_path.matches('/').count();
+        "../".repeat(depth) + "style.css"
+    } else {
+        // Document is in root, use direct path
+        "style.css".to_string()
+    };
+    
+    Ok(format!(r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{}</title>
+    <link rel="stylesheet" href="{}">
+</head>
+<body>
+    <header>
+        <nav>
+            {}
+        </nav>
+    </header>
+    <main>
+        <article>
+            <h1>{}</h1>
+            {}
+        </article>
+    </main>
+</body>
+</html>"#, doc.title, css_path, navigation, doc.title, doc.html_content))
+}
+
+/// Generates index page as blog feed with journal entries prominently displayed.
+fn generate_index_page(documents: &[ParsedDocument], project: &ProjectStructure) -> Result<String, String> {
+    let navigation = generate_navigation(documents);
+    
+    // Separate journal entries from other pages
+    let mut journal_entries: Vec<&ParsedDocument> = documents.iter()
+        .filter(|doc| doc.url_path.starts_with("journal/"))
+        .collect();
+    
+    // Sort journal entries by filename (which contains date) in reverse order (newest first)
+    journal_entries.sort_by(|a, b| b.url_path.cmp(&a.url_path));
+    
+    // Generate blog feed with journal entries
+    let blog_feed = if journal_entries.is_empty() {
+        "<p>No journal entries yet.</p>".to_string()
+    } else {
+        journal_entries.iter()
+            .map(|doc| {
+                // Extract date from filename (e.g., "2025-09-02" from "journal/2025-09-02.html")
+                let date_str = doc.url_path
+                    .strip_prefix("journal/")
+                    .and_then(|s| s.strip_suffix(".html"))
+                    .unwrap_or("Unknown Date");
+                
+                // Get excerpt from content (first paragraph)
+                let excerpt = extract_excerpt(&doc.html_content);
+                
+                // Get proper title (remove file-based title if it's just the date)
+                let display_title = if doc.title.replace(" ", "-").to_lowercase() == date_str.to_lowercase() {
+                    // Title matches date pattern, extract actual title from content
+                    extract_first_heading(&doc.html_content).unwrap_or(doc.title.clone())
+                } else {
+                    doc.title.clone()
+                };
+                
+                format!(r#"
+                <article class="blog-entry">
+                    <header class="blog-entry-header">
+                        <h2 class="blog-entry-title"><a href="{}">{}</a></h2>
+                        <time class="blog-entry-date">{}</time>
+                    </header>
+                    <div class="blog-entry-excerpt">
+                        {}
+                        <p><a href="{}" class="read-more">Read more →</a></p>
+                    </div>
+                </article>
+                "#, doc.url_path, display_title, format_date(date_str), excerpt, doc.url_path)
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    
+    // Get site title from homepage file or use default
+    let site_title = project.homepage_file.as_ref()
+        .and_then(|_| documents.iter().find(|doc| doc.url_path == "index.html"))
+        .map(|doc| doc.title.clone())
+        .unwrap_or_else(|| "Blog".to_string());
+    
+    Ok(format!(r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{}</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav>
+            {}
+        </nav>
+    </header>
+    <main>
+        <section class="blog-feed">
+            {}
+        </section>
+    </main>
+</body>
+</html>"#, site_title, navigation, blog_feed))
+}
+
+/// Generates a homepage that combines README content with a blog feed.
+/// 
+/// This creates the main landing page by taking the content from the homepage file
+/// (usually README.md) and appending a chronological feed of journal entries below it.
+/// This mimics the structure of sites like stephango.com or Substack.
+/// 
+/// # Arguments
+/// * `documents` - All parsed documents including homepage and journal entries
+/// * `project` - Project structure information
+/// 
+/// # Returns  
+/// * `Result<String, String>` - Complete HTML for the combined homepage
+fn generate_homepage_with_blog_feed(documents: &[ParsedDocument], _project: &ProjectStructure) -> Result<String, String> {
+    let navigation = generate_navigation(documents);
+    
+    // Find the homepage document (README.md becomes index.html)
+    let homepage_doc = documents.iter()
+        .find(|doc| doc.url_path == "index.html")
+        .ok_or("Homepage document not found")?;
+    
+    // Get journal entries and sort by date (newest first)
+    let mut journal_entries: Vec<&ParsedDocument> = documents.iter()
+        .filter(|doc| doc.url_path.starts_with("journal/"))
+        .collect();
+    journal_entries.sort_by(|a, b| b.url_path.cmp(&a.url_path));
+    
+    // Generate blog feed section
+    let blog_feed_section = if journal_entries.is_empty() {
+        String::new() // No journal section if no entries
+    } else {
+        let blog_entries = journal_entries.iter()
+            .map(|doc| {
+                let date_str = doc.url_path
+                    .strip_prefix("journal/")
+                    .and_then(|s| s.strip_suffix(".html"))
+                    .unwrap_or("Unknown Date");
+                
+                let excerpt = extract_excerpt(&doc.html_content);
+                let display_title = if doc.title.replace(" ", "-").to_lowercase() == date_str.to_lowercase() {
+                    // Title matches date pattern, extract actual title from content
+                    extract_first_heading(&doc.html_content).unwrap_or(doc.title.clone())
+                } else {
+                    doc.title.clone()
+                };
+                
+                format!(r#"
+                <article class="blog-entry">
+                    <header class="blog-entry-header">
+                        <h2 class="blog-entry-title"><a href="{}">{}</a></h2>
+                        <time class="blog-entry-date">{}</time>
+                    </header>
+                    <div class="blog-entry-excerpt">
+                        {}
+                        <p><a href="{}" class="read-more">Read more →</a></p>
+                    </div>
+                </article>
+                "#, doc.url_path, display_title, format_date(date_str), excerpt, doc.url_path)
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        
+        format!(r#"
+        <hr>
+        <section class="blog-feed">
+            <h2>Recent Posts</h2>
+            {}
+        </section>
+        "#, blog_entries)
+    };
+    
+    // Combine homepage content with blog feed
+    // Extract the main content from homepage document (remove the outer HTML structure)
+    let homepage_content = if let Some(start) = homepage_doc.html_content.find("<article>") {
+        if let Some(end) = homepage_doc.html_content.rfind("</article>") {
+            &homepage_doc.html_content[start + 9..end] // +9 to skip "<article>"
+        } else {
+            &homepage_doc.html_content
+        }
+    } else {
+        &homepage_doc.html_content
+    };
+    
     Ok(format!(r#"<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -916,59 +1147,33 @@ fn generate_html_page(doc: &ParsedDocument, all_docs: &[ParsedDocument], _projec
     </header>
     <main>
         <article>
-            <h1>{}</h1>
+            {}
             {}
         </article>
     </main>
 </body>
-</html>"#, doc.title, navigation, doc.title, doc.html_content))
-}
-
-/// Generates index page listing all content.
-fn generate_index_page(documents: &[ParsedDocument], _project: &ProjectStructure) -> Result<String, String> {
-    let navigation = generate_navigation(documents);
-    
-    let content_list = documents.iter()
-        .filter(|doc| doc.url_path != "index.html")
-        .map(|doc| format!(r#"<li><a href="{}">{}</a></li>"#, doc.url_path, doc.title))
-        .collect::<Vec<_>>()
-        .join("\n");
-    
-    Ok(format!(r#"<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Home</title>
-    <link rel="stylesheet" href="style.css">
-</head>
-<body>
-    <header>
-        <nav>
-            {}
-        </nav>
-    </header>
-    <main>
-        <article>
-            <h1>Welcome</h1>
-            <p>This site was generated with moss.</p>
-            <h2>Pages</h2>
-            <ul>
-                {}
-            </ul>
-        </article>
-    </main>
-</body>
-</html>"#, navigation, content_list))
+</html>"#, homepage_doc.title, navigation, homepage_content, blog_feed_section))
 }
 
 /// Generates navigation menu HTML.
 fn generate_navigation(documents: &[ParsedDocument]) -> String {
     let nav_items = documents.iter()
-        .take(5) // Limit navigation to first 5 pages for simplicity
+        .filter(|doc| !doc.url_path.starts_with("journal/")) // Exclude journal entries from navigation
         .map(|doc| {
-            let label = if doc.url_path == "index.html" { "Home" } else { &doc.title };
-            format!(r#"<a href="{}">{}</a>"#, doc.url_path, label)
+            let label = if doc.url_path == "index.html" { 
+                "Home".to_string()
+            } else { 
+                // Clean up title by removing file extensions and converting to title case
+                doc.title.replace(".html", "")
+            };
+            
+            let href = if doc.url_path == "index.html" {
+                "/".to_string()
+            } else {
+                doc.url_path.clone()
+            };
+            
+            format!(r#"<a href="{}">{}</a>"#, href, label)
         })
         .collect::<Vec<_>>()
         .join(" | ");
@@ -976,85 +1181,421 @@ fn generate_navigation(documents: &[ParsedDocument]) -> String {
     nav_items
 }
 
-/// Generates beautiful default CSS styling.
+/// Extracts an excerpt from HTML content (first paragraph or first 200 characters).
+fn extract_excerpt(html_content: &str) -> String {
+    // Try to extract first paragraph
+    if let Some(start) = html_content.find("<p>") {
+        if let Some(end) = html_content[start..].find("</p>") {
+            let paragraph = &html_content[start + 3..start + end];
+            // Remove any HTML tags and limit length
+            let clean_text = paragraph.replace("<strong>", "").replace("</strong>", "")
+                .replace("<em>", "").replace("</em>", "")
+                .replace("<a href", "<a href"); // Keep links intact for now
+            
+            if clean_text.len() > 200 {
+                format!("{}...", &clean_text[..200])
+            } else {
+                clean_text
+            }
+        } else {
+            "No excerpt available.".to_string()
+        }
+    } else {
+        // Fallback: take first 200 characters
+        let plain_text = html_content.replace("<", " <").replace(">", "> ");
+        if plain_text.len() > 200 {
+            format!("{}...", &plain_text[..200])
+        } else {
+            plain_text
+        }
+    }
+}
+
+/// Extracts the first heading from HTML content.
+fn extract_first_heading(html_content: &str) -> Option<String> {
+    // Look for h1, h2, etc. tags
+    for heading_tag in ["<h1>", "<h2>", "<h3>"] {
+        if let Some(start) = html_content.find(heading_tag) {
+            let tag_len = heading_tag.len();
+            let close_tag = format!("</{}>", &heading_tag[1..heading_tag.len()-1]);
+            if let Some(end) = html_content[start + tag_len..].find(&close_tag) {
+                let heading_text = &html_content[start + tag_len..start + tag_len + end];
+                return Some(heading_text.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Formats a date string (YYYY-MM-DD) into a more readable format.
+fn format_date(date_str: &str) -> String {
+    // Simple date formatting: "2025-09-02" -> "September 2, 2025"
+    let parts: Vec<&str> = date_str.split('-').collect();
+    if parts.len() == 3 {
+        if let (Ok(year), Ok(month), Ok(day)) = (parts[0].parse::<i32>(), parts[1].parse::<u32>(), parts[2].parse::<u32>()) {
+            let month_names = [
+                "January", "February", "March", "April", "May", "June",
+                "July", "August", "September", "October", "November", "December"
+            ];
+            if month >= 1 && month <= 12 {
+                return format!("{} {}, {}", month_names[(month - 1) as usize], day, year);
+            }
+        }
+    }
+    // Fallback to original string if parsing fails
+    date_str.to_string()
+}
+
+/// Generates enhanced CSS styling optimized for Writers & Publishers.
+/// 
+/// Creates a typography-first design system with:
+/// - 18px base font size for comfortable long-form reading
+/// - 65ch optimal line length for sustained reading
+/// - 1.7 line-height for enhanced readability
+/// - Warm, paper-inspired color palette reducing eye strain
+/// - CSS custom properties for maintainability
+/// - Dark mode support with consistent color relationships
+/// - Mobile-responsive design with appropriate font scaling
 fn generate_default_css() -> String {
-    r#"/* moss - Beautiful default styling */
+    r#"/* moss - Typography-first design for Writers & Publishers */
+
+/* CSS Custom Properties */
+:root {
+    /* Color System - Warm, paper-inspired */
+    --moss-text-primary: #2c2825;
+    --moss-text-secondary: #5d5853;
+    --moss-text-muted: #8a8580;
+    --moss-background: #faf8f5;
+    --moss-background-alt: #f4f1ec;
+    --moss-accent: #2d5a2d;
+    --moss-accent-hover: #1e3d1e;
+    --moss-border-light: #e6e2db;
+    --moss-border-medium: #d1cdc4;
+    
+    /* Typography Scale */
+    --moss-font-base: 1.125rem;     /* 18px - optimal for long-form reading */
+    --moss-font-sm: 1rem;           /* 16px */
+    --moss-font-lg: 1.25rem;        /* 20px */
+    --moss-font-xl: 1.5rem;         /* 24px */
+    --moss-font-2xl: 2rem;          /* 32px */
+    --moss-font-3xl: 2.5rem;        /* 40px */
+    
+    /* Spacing Scale (8pt grid) */
+    --moss-space-xs: 0.5rem;        /* 8px */
+    --moss-space-sm: 1rem;          /* 16px */
+    --moss-space-md: 1.5rem;        /* 24px */
+    --moss-space-lg: 2rem;          /* 32px */
+    --moss-space-xl: 3rem;          /* 48px */
+    --moss-space-2xl: 4rem;         /* 64px */
+    
+    /* Layout */
+    --moss-content-width: 65ch;     /* Optimal line length */
+    --moss-container-padding: clamp(1rem, 5vw, 2rem);
+}
+
+/* Base Styles */
+* {
+    box-sizing: border-box;
+}
+
+html {
+    font-size: 100%;
+    -webkit-text-size-adjust: 100%;
+}
+
 body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    line-height: 1.6;
-    color: #333;
-    max-width: 800px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Inter', system-ui, sans-serif;
+    font-size: var(--moss-font-base);
+    line-height: 1.7;
+    color: var(--moss-text-primary);
+    background: var(--moss-background);
+    margin: 0;
+    max-width: var(--moss-content-width);
     margin: 0 auto;
-    padding: 20px;
-    background: #f9f9f9;
+    padding: var(--moss-space-lg) var(--moss-container-padding);
 }
 
-header {
-    margin-bottom: 2rem;
-    padding-bottom: 1rem;
-    border-bottom: 1px solid #e0e0e0;
-}
-
-nav a {
-    color: #2d5a2d;
-    text-decoration: none;
-    font-weight: 500;
-}
-
-nav a:hover {
-    text-decoration: underline;
-}
-
-main {
-    background: white;
-    padding: 2rem;
-    border-radius: 8px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-}
-
-h1, h2, h3 {
-    color: #2d5a2d;
-    margin-top: 1.5em;
+/* Typography Hierarchy */
+h1, h2, h3, h4, h5, h6 {
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--moss-text-primary);
+    margin: var(--moss-space-xl) 0 var(--moss-space-md) 0;
 }
 
 h1 {
-    border-bottom: 2px solid #e8f5e8;
-    padding-bottom: 0.5rem;
+    font-size: var(--moss-font-3xl);
+    margin-top: 0;
+    border-bottom: 2px solid var(--moss-border-light);
+    padding-bottom: var(--moss-space-sm);
+}
+
+h2 {
+    font-size: var(--moss-font-2xl);
+}
+
+h3 {
+    font-size: var(--moss-font-xl);
+}
+
+h4 {
+    font-size: var(--moss-font-lg);
+}
+
+h5, h6 {
+    font-size: var(--moss-font-base);
+}
+
+/* Body Text & Paragraphs */
+p {
+    margin: 0 0 var(--moss-space-md) 0;
+    max-width: var(--moss-content-width);
+}
+
+p + p {
+    margin-top: var(--moss-space-md);
+}
+
+/* Lists */
+ul, ol {
+    margin: var(--moss-space-md) 0;
+    padding-left: var(--moss-space-lg);
+}
+
+li {
+    margin-bottom: var(--moss-space-xs);
+    line-height: 1.6;
+}
+
+li > ul, li > ol {
+    margin-top: var(--moss-space-xs);
+    margin-bottom: var(--moss-space-xs);
+}
+
+/* Links */
+a {
+    color: var(--moss-accent);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.2s ease;
+}
+
+a:hover, a:focus {
+    color: var(--moss-accent-hover);
+    border-bottom-color: var(--moss-accent-hover);
+}
+
+/* Header */
+header {
+    margin-bottom: var(--moss-space-2xl);
+    padding-bottom: var(--moss-space-lg);
+    border-bottom: 1px solid var(--moss-border-light);
+}
+
+nav {
+    font-weight: 500;
+}
+
+nav a {
+    margin-right: var(--moss-space-md);
+    color: var(--moss-text-secondary);
+    border-bottom: none;
+}
+
+nav a:hover {
+    color: var(--moss-accent);
+}
+
+/* Main Content */
+main {
+    background: white;
+    padding: var(--moss-space-2xl);
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(44, 40, 37, 0.1);
+    margin-bottom: var(--moss-space-2xl);
+}
+
+article {
+    max-width: var(--moss-content-width);
+}
+
+/* Code */
+code {
+    font-family: 'SF Mono', 'Monaco', 'Cascadia Code', 'Roboto Mono', monospace;
+    font-size: 0.9em;
+    background: var(--moss-background-alt);
+    padding: 0.2em 0.4em;
+    border-radius: 3px;
+    color: var(--moss-text-primary);
 }
 
 pre {
-    background: #f5f5f5;
-    padding: 1rem;
-    border-radius: 4px;
+    background: var(--moss-background-alt);
+    padding: var(--moss-space-lg);
+    border-radius: 6px;
     overflow-x: auto;
+    border: 1px solid var(--moss-border-light);
+    margin: var(--moss-space-lg) 0;
 }
 
+pre code {
+    background: none;
+    padding: 0;
+    font-size: 0.875rem;
+}
+
+/* Blockquotes */
 blockquote {
-    border-left: 4px solid #2d5a2d;
-    margin: 0;
-    padding-left: 1rem;
-    color: #666;
+    border-left: 4px solid var(--moss-accent);
+    margin: var(--moss-space-lg) 0;
+    padding-left: var(--moss-space-lg);
+    color: var(--moss-text-secondary);
+    font-style: italic;
+    font-size: var(--moss-font-lg);
 }
 
+blockquote p {
+    margin: var(--moss-space-sm) 0;
+}
+
+/* Images */
 img {
     max-width: 100%;
     height: auto;
+    border-radius: 6px;
+    margin: var(--moss-space-lg) 0;
 }
 
+/* Tables */
 table {
     width: 100%;
     border-collapse: collapse;
-    margin: 1rem 0;
+    margin: var(--moss-space-lg) 0;
+    border: 1px solid var(--moss-border-medium);
+    border-radius: 6px;
+    overflow: hidden;
 }
 
 th, td {
-    border: 1px solid #ddd;
-    padding: 0.5rem;
+    padding: var(--moss-space-sm) var(--moss-space-md);
     text-align: left;
+    border-bottom: 1px solid var(--moss-border-light);
 }
 
 th {
-    background: #f5f5f5;
+    background: var(--moss-background-alt);
+    font-weight: 600;
+    color: var(--moss-text-primary);
+}
+
+tr:last-child td {
+    border-bottom: none;
+}
+
+/* Horizontal Rule */
+hr {
+    border: none;
+    height: 1px;
+    background: var(--moss-border-light);
+    margin: var(--moss-space-2xl) 0;
+}
+
+/* Responsive Design */
+@media (max-width: 48rem) {
+    :root {
+        --moss-font-base: 1rem;
+        --moss-font-2xl: 1.75rem;
+        --moss-font-3xl: 2rem;
+    }
+    
+    body {
+        padding: var(--moss-space-md);
+    }
+    
+    main {
+        padding: var(--moss-space-lg);
+    }
+}
+
+/* Blog Feed Styling */
+.blog-feed {
+    max-width: var(--moss-content-width);
+}
+
+.blog-entry {
+    margin-bottom: var(--moss-space-2xl);
+    padding-bottom: var(--moss-space-xl);
+    border-bottom: 1px solid var(--moss-border-light);
+}
+
+.blog-entry:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+}
+
+.blog-entry-header {
+    margin-bottom: var(--moss-space-md);
+}
+
+.blog-entry-title {
+    margin: 0 0 var(--moss-space-xs) 0;
+    font-size: var(--moss-font-xl);
+    line-height: 1.3;
+}
+
+.blog-entry-title a {
+    color: var(--moss-text-primary);
+    text-decoration: none;
+    border-bottom: none;
+}
+
+.blog-entry-title a:hover {
+    color: var(--moss-accent);
+}
+
+.blog-entry-date {
+    font-size: var(--moss-font-sm);
+    color: var(--moss-text-secondary);
+    font-weight: 500;
+    display: block;
+    margin-bottom: var(--moss-space-sm);
+}
+
+.blog-entry-excerpt {
+    color: var(--moss-text-secondary);
+    line-height: 1.6;
+}
+
+.blog-entry-excerpt p {
+    margin-bottom: var(--moss-space-sm);
+}
+
+.read-more {
+    font-weight: 500;
+    color: var(--moss-accent) !important;
+    border-bottom: 1px solid transparent !important;
+}
+
+.read-more:hover {
+    border-bottom-color: var(--moss-accent-hover) !important;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --moss-text-primary: #e8e6e3;
+        --moss-text-secondary: #b8b5b0;
+        --moss-text-muted: #8a8580;
+        --moss-background: #1a1816;
+        --moss-background-alt: #242018;
+        --moss-border-light: #3a362f;
+        --moss-border-medium: #4a453c;
+    }
+    
+    main {
+        background: #211e1b;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
 }
 "#.to_string()
 }
@@ -1064,48 +1605,374 @@ th {
 mod tests {
     use super::*;
     
-    // Tests the publishing workflow triggered by Finder integration
+    // Tests the website generation workflow triggered by Finder integration
     // This is part of Feature 2 (after installation, right-click works)
 
     #[test]
-    fn test_simple_blog_publishing() {
-        // Test with our specific test content
-        let test_path = "../test-content/simple-blog";
-        if std::path::Path::new(test_path).exists() {
-            let result = publish_folder(test_path.to_string());
-            assert!(result.is_ok(), "Should successfully publish test blog: {:?}", result);
-            
-            if let Ok(success_msg) = result {
-                assert!(success_msg.contains("simple-blog"), "Should mention folder name");
-            }
+    fn test_compile_folder_basic() {
+        // Create temporary directory with test content
+        let temp_dir = std::env::temp_dir().join("moss_test_compile_basic");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        
+        // Create a simple markdown file
+        let readme_path = temp_dir.join("README.md");
+        std::fs::write(&readme_path, "# Test Blog\n\nThis is a test.").unwrap();
+        
+        // Test compilation
+        let result = compile_folder(temp_dir.to_string_lossy().to_string());
+        assert!(result.is_ok(), "Should successfully compile test content: {:?}", result);
+        
+        if let Ok(success_msg) = result {
+            assert!(success_msg.contains("1 files scanned"), "Should mention file count");
+            assert!(success_msg.contains("Site generated at"), "Should mention output path");
         }
+        
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
     #[test]
-    fn test_folder_publishing_workflow() {
-        // When user right-clicks folder and selects "Publish to Web",
-        // the app should process the folder and provide feedback
+    fn test_folder_compilation_workflow() {
+        // Test various edge cases in compilation workflow
         
-        // Should handle valid folders
-        let result = publish_folder(".".to_string());
-        assert!(result.is_ok() || result.unwrap_err().contains("No files found"), 
-            "Should process valid folders or give clear error");
+        // Test with valid folder containing content
+        let temp_dir = std::env::temp_dir().join("moss_test_workflow_valid");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        std::fs::write(temp_dir.join("README.md"), "# Valid Content\n\nSome text.").unwrap();
         
-        // Should reject invalid input
-        let result = publish_folder("".to_string());
+        let result = compile_folder(temp_dir.to_string_lossy().to_string());
+        assert!(result.is_ok(), "Should handle valid folders with content: {:?}", result);
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        
+        // Test with empty folder
+        let empty_dir = std::env::temp_dir().join("moss_test_workflow_empty");
+        let _ = std::fs::remove_dir_all(&empty_dir);
+        std::fs::create_dir_all(&empty_dir).unwrap();
+        
+        let result = compile_folder(empty_dir.to_string_lossy().to_string());
+        assert!(result.is_err(), "Should reject folders with no content");
+        assert!(result.unwrap_err().contains("No files found"), "Should give clear error for empty folders");
+        let _ = std::fs::remove_dir_all(&empty_dir);
+        
+        // Should reject empty paths
+        let result = compile_folder("".to_string());
         assert!(result.is_err(), "Should reject empty paths");
         assert_eq!(result.unwrap_err(), "Empty folder path provided");
         
         // Should handle non-existent folders gracefully  
-        let result = publish_folder("/does/not/exist".to_string());
+        let result = compile_folder("/does/not/exist/moss_test".to_string());
         assert!(result.is_err(), "Should handle non-existent folders");
-        assert!(result.unwrap_err().contains("does not exist"));
+        let error_msg = result.unwrap_err();
+        assert!(error_msg.contains("does not exist") || error_msg.contains("No such file"));
+    }
+
+    #[test]
+    fn test_extract_excerpt() {
+        // Test normal paragraph extraction
+        let html = "<h1>Title</h1><p>This is the first paragraph with some content.</p><p>Second paragraph.</p>";
+        let excerpt = extract_excerpt(html);
+        assert!(excerpt.contains("This is the first paragraph"));
+        assert!(excerpt.len() <= 200); // Should be truncated
+        
+        // Test with no paragraphs
+        let html = "<h1>Title</h1><div>No paragraphs here</div>";
+        let excerpt = extract_excerpt(html);
+        assert!(excerpt.len() <= 100); // Should return truncated content
+        
+        // Test empty content
+        let excerpt = extract_excerpt("");
+        assert_eq!(excerpt, "");
+    }
+
+    #[test]
+    fn test_extract_first_heading() {
+        // Test h1 extraction
+        let html = "<h1>Main Title</h1><p>Content</p>";
+        assert_eq!(extract_first_heading(html), Some("Main Title".to_string()));
+        
+        // Test h2 extraction when h1 is missing
+        let html = "<p>Content</p><h2>Sub Title</h2>";
+        assert_eq!(extract_first_heading(html), Some("Sub Title".to_string()));
+        
+        // Test h3 extraction
+        let html = "<div><h3>Third Level</h3></div>";
+        assert_eq!(extract_first_heading(html), Some("Third Level".to_string()));
+        
+        // Test no headings
+        let html = "<p>No headings here</p>";
+        assert_eq!(extract_first_heading(html), None);
+        
+        // Test empty content
+        assert_eq!(extract_first_heading(""), None);
+    }
+
+    #[test]
+    fn test_format_date() {
+        // Test valid date
+        assert_eq!(format_date("2025-09-02"), "September 2, 2025");
+        assert_eq!(format_date("2024-12-31"), "December 31, 2024");
+        assert_eq!(format_date("2023-01-15"), "January 15, 2023");
+        
+        // Test invalid date formats
+        assert_eq!(format_date("invalid"), "invalid");
+        assert_eq!(format_date("2025-13-02"), "2025-13-02"); // Invalid month
+        assert_eq!(format_date("25-09-02"), "September 2, 25"); // Year too short (but still valid number)
+        assert_eq!(format_date(""), "");
+    }
+
+    #[test]
+    fn test_compile_folder_with_options_no_serve() {
+        // Create temporary directory
+        let temp_dir = std::env::temp_dir().join("moss_test_compile_no_serve");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        
+        // Create test content
+        std::fs::write(temp_dir.join("README.md"), "# Test\n\nContent here.").unwrap();
+        
+        // Test compilation without auto-serve
+        let result = compile_folder_with_options(temp_dir.to_string_lossy().to_string(), false);
+        assert!(result.is_ok());
+        
+        let message = result.unwrap();
+        assert!(message.contains("Site generated at"));
+        assert!(!message.contains("Preview server started")); // Should NOT contain server message
+        
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_compile_and_serve_wrapper() {
+        // Create temporary directory
+        let temp_dir = std::env::temp_dir().join("moss_test_compile_and_serve");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        
+        // Create test content
+        std::fs::write(temp_dir.join("README.md"), "# Test\n\nContent here.").unwrap();
+        
+        // Test compile_and_serve wrapper
+        let result = compile_and_serve(temp_dir.to_string_lossy().to_string());
+        assert!(result.is_ok());
+        
+        let message = result.unwrap();
+        assert!(message.contains("Site generated at"));
+        assert!(message.contains("Preview server started")); // Should contain server message
+        
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_generate_homepage_with_blog_feed() {
+        use crate::types::{ParsedDocument, ProjectStructure, ProjectType};
+        
+        // Create mock documents
+        let homepage_doc = ParsedDocument {
+            title: "My Blog".to_string(),
+            url_path: "index.html".to_string(),
+            html_content: "<h1>Welcome</h1><p>This is my blog homepage.</p>".to_string(),
+            content: String::new(),
+            date: None,
+        };
+        
+        let journal_doc = ParsedDocument {
+            title: "2025 01 15".to_string(),
+            url_path: "journal/2025-01-15.html".to_string(),
+            html_content: "<h1>My First Post</h1><p>This is my first journal entry.</p>".to_string(),
+            content: String::new(),
+            date: None,
+        };
+        
+        let about_doc = ParsedDocument {
+            title: "About".to_string(),
+            url_path: "about.html".to_string(), 
+            html_content: "<h1>About Me</h1><p>About page content.</p>".to_string(),
+            content: String::new(),
+            date: None,
+        };
+        
+        let documents = vec![homepage_doc, journal_doc, about_doc];
+        let project = ProjectStructure {
+            root_path: "/test".to_string(),
+            markdown_files: vec![],
+            html_files: vec![],
+            image_files: vec![],
+            other_files: vec![],
+            total_files: 3,
+            project_type: ProjectType::BlogStyleFlatSite,
+            homepage_file: Some("README.md".to_string()),
+            content_folders: vec!["journal".to_string()],
+        };
+        
+        // Test with blog feed
+        let result = generate_homepage_with_blog_feed(&documents, &project);
+        assert!(result.is_ok());
+        
+        let html = result.unwrap();
+        assert!(html.contains("Welcome")); // Homepage content
+        assert!(html.contains("This is my blog homepage")); // Homepage content
+        assert!(html.contains("Recent Posts")); // Blog feed section
+        assert!(html.contains("My First Post")); // Journal entry
+        assert!(html.contains("January 15, 2025")); // Formatted date
+        assert!(html.contains("about.html")); // Navigation should include about
+        
+        // Extract navigation section and check that journal URLs don't appear there
+        let nav_start = html.find("<nav>").unwrap();
+        let nav_end = html.find("</nav>").unwrap() + 6;
+        let nav_section = &html[nav_start..nav_end];
+        assert!(!nav_section.contains("journal/")); // Navigation should NOT include journal paths
+    }
+
+    #[test]  
+    fn test_generate_homepage_with_blog_feed_no_journals() {
+        use crate::types::{ParsedDocument, ProjectStructure, ProjectType};
+        
+        // Create mock documents without journal entries
+        let homepage_doc = ParsedDocument {
+            title: "My Blog".to_string(),
+            url_path: "index.html".to_string(),
+            html_content: "<h1>Welcome</h1><p>This is my blog.</p>".to_string(),
+            content: String::new(),
+            date: None,
+        };
+        
+        let documents = vec![homepage_doc];
+        let project = ProjectStructure {
+            root_path: "/test".to_string(),
+            markdown_files: vec![],
+            html_files: vec![],
+            image_files: vec![],
+            other_files: vec![],
+            total_files: 1,
+            project_type: ProjectType::SimpleFlatSite,
+            homepage_file: Some("README.md".to_string()),
+            content_folders: vec![],
+        };
+        
+        // Test without journal entries
+        let result = generate_homepage_with_blog_feed(&documents, &project);
+        assert!(result.is_ok());
+        
+        let html = result.unwrap();
+        assert!(html.contains("Welcome")); // Homepage content
+        assert!(!html.contains("Recent Posts")); // No blog feed section
+    }
+
+    #[test]
+    fn test_generate_homepage_with_blog_feed_missing_homepage() {
+        use crate::types::{ParsedDocument, ProjectStructure, ProjectType};
+        
+        // Create documents without homepage
+        let journal_doc = ParsedDocument {
+            title: "Journal Entry".to_string(),
+            url_path: "journal/2025-01-15.html".to_string(),
+            html_content: "<h1>Entry</h1>".to_string(),
+            content: String::new(),
+            date: None,
+        };
+        
+        let documents = vec![journal_doc];
+        let project = ProjectStructure {
+            root_path: "/test".to_string(),
+            markdown_files: vec![],
+            html_files: vec![],
+            image_files: vec![],
+            other_files: vec![],
+            total_files: 1,
+            project_type: ProjectType::BlogStyleFlatSite,
+            homepage_file: None,
+            content_folders: vec!["journal".to_string()],
+        };
+        
+        // Should error when homepage document is missing
+        let result = generate_homepage_with_blog_feed(&documents, &project);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Homepage document not found"));
+    }
+
+    #[test]
+    fn test_full_blog_compilation_workflow() {
+        // Create temporary directory with realistic blog structure
+        let temp_dir = std::env::temp_dir().join("moss_test_full_blog");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        std::fs::create_dir_all(temp_dir.join("journal")).unwrap();
+        
+        // Create README.md (homepage)
+        std::fs::write(
+            temp_dir.join("README.md"),
+            "# My Blog\n\n> Welcome to my personal blog\n\nThis is the main page."
+        ).unwrap();
+        
+        // Create journal entries
+        std::fs::write(
+            temp_dir.join("journal/2025-01-15.md"),
+            "# First Post\n\nThis is my first blog post with some content."
+        ).unwrap();
+        
+        std::fs::write(
+            temp_dir.join("journal/2025-01-10.md"), 
+            "# Earlier Post\n\nThis is an earlier post that should come second."
+        ).unwrap();
+        
+        // Create about page
+        std::fs::write(
+            temp_dir.join("about.md"),
+            "# About Me\n\nI write about technology and life."
+        ).unwrap();
+        
+        // Compile the blog
+        let result = compile_folder(temp_dir.to_string_lossy().to_string());
+        assert!(result.is_ok(), "Blog compilation should succeed: {:?}", result);
+        
+        // Check generated files exist
+        let output_dir = temp_dir.join(".moss/site");
+        assert!(output_dir.join("index.html").exists(), "index.html should be generated");
+        assert!(output_dir.join("style.css").exists(), "style.css should be generated");
+        assert!(output_dir.join("about.html").exists(), "about.html should be generated");
+        assert!(output_dir.join("journal/2025-01-15.html").exists(), "Journal entry should be generated");
+        assert!(output_dir.join("journal/2025-01-10.html").exists(), "Earlier journal entry should be generated");
+        
+        // Check index.html content
+        let index_content = std::fs::read_to_string(output_dir.join("index.html")).unwrap();
+        
+        // Should contain README content
+        assert!(index_content.contains("My Blog"), "Should contain README title");
+        assert!(index_content.contains("Welcome to my personal blog"), "Should contain README content");
+        assert!(index_content.contains("This is the main page"), "Should contain README text");
+        
+        // Should contain blog feed
+        assert!(index_content.contains("Recent Posts"), "Should have blog feed section");
+        assert!(index_content.contains("First Post"), "Should show latest journal entry");
+        assert!(index_content.contains("Earlier Post"), "Should show earlier journal entry");
+        assert!(index_content.contains("January 15, 2025"), "Should format first post date");
+        assert!(index_content.contains("January 10, 2025"), "Should format second post date");
+        
+        // Should have navigation
+        assert!(index_content.contains("about.html"), "Navigation should include about page");
+        
+        // Extract navigation section and verify journal entries are not there
+        let nav_start = index_content.find("<nav>").unwrap();
+        let nav_end = index_content.find("</nav>").unwrap() + 6;
+        let nav_section = &index_content[nav_start..nav_end];
+        assert!(!nav_section.contains("journal/"), "Navigation should exclude journal entries");
+        
+        // Check journal page has correct CSS path
+        let journal_content = std::fs::read_to_string(output_dir.join("journal/2025-01-15.html")).unwrap();
+        assert!(journal_content.contains("../style.css"), "Journal page should reference CSS with correct relative path");
+        
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }
 
 /// Gets the last selected directory from app config storage.
 /// 
-/// Returns the last directory path chosen by the user for publishing,
+/// Returns the last directory path chosen by the user for compilation,
 /// or None if no previous selection exists.
 fn get_last_selected_directory(app: &tauri::AppHandle) -> Option<String> {
     let app_config_dir = app.path().app_config_dir().ok()?;
@@ -1135,17 +2002,17 @@ fn save_last_selected_directory(app: &tauri::AppHandle, directory: &str) -> Resu
     Ok(())
 }
 
-/// Tauri command to open directory picker and publish the selected folder.
+/// Tauri command to open directory picker and compile the selected folder.
 /// 
 /// Opens a native directory selection dialog, remembers the choice for next time,
-/// and triggers the complete build → preview workflow.
+/// and triggers the complete compile → serve → preview workflow.
 /// 
 /// # Arguments
 /// * `app` - Tauri application handle for file dialog and config access
 /// 
 /// # Returns
-/// * `Ok(String)` - Success message indicating publish started
-/// * `Err(String)` - Error if dialog canceled or publish failed
+/// * `Ok(String)` - Success message indicating compilation and preview started
+/// * `Err(String)` - Error if dialog canceled or compilation failed
 /// 
 /// # Behavior
 /// 1. Shows native directory picker starting from last selected directory
@@ -1153,7 +2020,7 @@ fn save_last_selected_directory(app: &tauri::AppHandle, directory: &str) -> Resu
 /// 3. Triggers build → preview workflow
 /// 4. Returns immediately (preview opens asynchronously)
 #[tauri::command]
-pub async fn publish_with_directory_picker(app: tauri::AppHandle) -> Result<String, String> {
+pub async fn compile_with_directory_picker(app: tauri::AppHandle) -> Result<String, String> {
     use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
     
     // Get last selected directory as default
@@ -1165,7 +2032,7 @@ pub async fn publish_with_directory_picker(app: tauri::AppHandle) -> Result<Stri
     app
         .dialog()
         .file()
-        .set_title("Select folder to publish")
+        .set_title("Select folder to compile")
         .set_directory(default_path.unwrap_or_else(|| {
             std::env::var("HOME").unwrap_or_else(|_| ".".to_string())
         }))
@@ -1187,7 +2054,7 @@ pub async fn publish_with_directory_picker(app: tauri::AppHandle) -> Result<Stri
             }
             
             // Step 1: Build the site (compile files, start local server)
-            match publish_folder(path_str.clone()) {
+            match compile_and_serve(path_str.clone()) {
                 Ok(result) => {
                     println!("✅ Build completed: {}", result);
                     

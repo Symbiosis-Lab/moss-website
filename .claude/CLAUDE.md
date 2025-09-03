@@ -8,7 +8,7 @@ When discussing product issues, think like a product manger. Focus on market fit
 
 Documents are mostly for human, especially developers. So speak their language, and keep the documents concise. But also keep them philosophical, poetic and intriguing, as they should be powerful to all humans. Don't spell out these concepts - incorporate them in the way you think and the style you write, infusing the ideas in the reader's mind.
 
-## Documentation Strategy
+# Documentation Strategy
 
 When asked to document an idea:
 
@@ -31,7 +31,15 @@ When asked to document an idea:
 
 This approach maintains document quality and prevents fragmentation of related concepts across multiple files.
 
-## Writing Guidelines
+## Journal Writing Guidelines
+
+1. **Document the problem** - What specific issue required a decision?
+2. **List considered options** - What alternatives were evaluated?
+3. **Explain the choice** - Why was this option selected?
+4. **Record trade-offs** - What was gained/lost with this decision?
+5. **Note future implications** - How does this affect upcoming work?
+
+This creates valuable context for future developers and prevents re-litigating solved problems.
 
 ### Persona & Voice
 
@@ -58,7 +66,7 @@ Working at Symbiosis Lab, exploring human-information system coevolution. This c
 - **Acknowledge uncertainty**: "Possibly" or "likely" when unsure
 - **Context over drama**: The real story is interesting enough
 
-#### Journal Writing Structure
+#### Journal Structure
 
 1. **Hook**: What problem did we face?
 2. **Journey**: What did we try? What worked?
@@ -66,7 +74,7 @@ Working at Symbiosis Lab, exploring human-information system coevolution. This c
 4. **Impact**: Why does this matter?
 5. **Technical notes**: Brief, at the end, linked
 
-## Insight Review Process
+# Insight Review Process
 
 When asked to review insights:
 
@@ -84,27 +92,7 @@ When asked to review insights:
 
 This systematic review prevents losing valuable lessons learned during development cycles.
 
-# Development Guidelines
-
-1. **Document the problem** - What specific issue required a decision?
-2. **List considered options** - What alternatives were evaluated?
-3. **Explain the choice** - Why was this option selected?
-4. **Record trade-offs** - What was gained/lost with this decision?
-5. **Note future implications** - How does this affect upcoming work?
-
-This creates valuable context for future developers and prevents re-litigating solved problems.
-
-### Example: Local Preview Server Decision
-
-**Problem**: `file://` URLs cause CORS issues and don't match deployment behavior  
-**Options**: Keep file://, embedded server, external process, HTTP library  
-**Choice**: Axum + tower-http embedded server  
-**Trade-offs**: +50 lines code, +2 dependencies, -CORS issues, +real HTTP behavior  
-**Future**: Enables realistic testing, opens door for dev server features
-
----
-
-# Development Guidelines
+# Software Development Guidelines
 
 ## Manual Testing Communication
 

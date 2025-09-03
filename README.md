@@ -19,19 +19,23 @@ A tiny desktop app that turns any folder into a website. Right-click, publish, d
 
 Your files stay on your computer. Your site lives on your domain. Your audience remains yours.
 
-## [Architecture](./docs/developer/technical-architecture.md)
+## [Architecture](./docs/public/architecture.md)
 
 ```
-Local files → moss → Static site → Your infrastructure
-                ↓
-          Syndication → Existing platforms
-                ↓
-        Spore/Lichen → Social layer
+Local files → moss → SSG (built-in/external) → Static site → Your infrastructure
+                ↓              ↓                      ↓
+          Theme selection  Folder adapter      Lichen injection
+                ↓              ↓                      ↓
+        Download SSG on-demand    ↓             Social features
+                           .moss/ directory
+                    (all temporary files)
 ```
 
-**moss** - Tauri app, lives in menu bar, compiles and deploys  
+**moss** - Desktop app orchestrating SSGs + deployment + syndication  
 **Spore** - Optional ActivityPub/WebMention server  
-**Lichen** - JavaScript widget for comments on any static site
+**Lichen** - JavaScript widget adding social features to any static site
+
+moss doesn't compete with static site generators—it completes them. Choose any theme from Jekyll, Hugo, Zola, or Eleventy. moss handles the setup, preserves your folder structure, and adds the missing workflow pieces.
 
 ## Principles
 
@@ -59,7 +63,7 @@ npm run tauri dev          # Launch development app
 # Right-click any folder → "Publish to Web" → See instant preview
 ```
 
-**Current Status**: Core publishing pipeline complete! Folder → Beautiful HTML + localhost preview working. Deployment integration coming next.
+**Current Status**: Core publishing pipeline complete! Folder → Beautiful HTML + localhost preview working. Next: minimal built-in SSG + theme marketplace integration.
 
 For developers who want more:
 
