@@ -9,12 +9,14 @@
 **Year 3: Ecosystem** - Self-sustaining infrastructure for the open web
 
 ## Phase 0: Silent Foundation (Aug-Oct 2025)
-**Build the irreducible core**
+**Build the irreducible core + plugin infrastructure**
 
 ### Technical Milestones
 - Tauri app with menu bar presence ✅
 - Right-click folder → Publish flow ✅
 - Markdown → HTML with beautiful defaults ✅
+- Plugin architecture foundation
+- Default minimal SSG as first plugin
 - moss.pub deployment (zero config)
 - GitHub Pages for developers
 
@@ -27,14 +29,15 @@
 ### No public announcements. No funding applications.
 
 ## Phase 1: Soft Emergence (Nov 2025-Jan 2026)
-**Prove value with early adopters**
+**Prove value with early adopters through plugin ecosystem**
 
 ### Technical Milestones
-- Plugin architecture (WASM-based)
-- Netlify/Vercel deployment options
-- Basic theme system (3 beautiful options)
-- RSS generation
-- Micropub endpoint for submissions
+- Jekyll and Hugo SSG plugins
+- Plugin marketplace foundation
+- Theme system via plugins (10+ beautiful options)
+- Publisher plugins (Netlify/Vercel)
+- RSS generation plugin
+- Micropub endpoint plugin for submissions
 
 ### Success Criteria
 - 100 active users
@@ -45,13 +48,14 @@
 ### Begin soft launch in communities. First grant applications.
 
 ## Phase 2: Cultural Seeds (Feb-Apr 2026)
-**Create first cultural moments**
+**Create first cultural moments through plugin ecosystem**
 
 ### Technical Milestones
-- Spore server alpha (ActivityPub + WebMention)
-- Lichen widget v1 (embeddable comments)
-- POSSE plugin for one platform
-- Anonymous submissions via Micropub
+- Spore server alpha plugin (ActivityPub + WebMention)
+- Lichen plugin v1 (embeddable comments)
+- Social platform plugins (POSSE to Twitter/Mastodon)
+- Community-contributed plugins
+- Plugin development tools and documentation
 - Windows support
 
 ### Success Criteria
@@ -61,14 +65,15 @@
 - Successful content experiment
 
 ## Phase 3: Network Effects (May-Jul 2026)
-**Ecosystem becomes self-sustaining**
+**Plugin ecosystem becomes self-sustaining**
 
 ### Technical Milestones
-- Plugin marketplace
-- Multi-language support (Chinese excellence)
-- moss.pub hosting tiers
-- Full ActivityPub federation
-- API for third-party tools
+- Remote plugin marketplace with discovery
+- Plugin monetization and revenue sharing
+- Multi-language support plugins (Chinese excellence)
+- Advanced hosting plugins (moss.pub tiers)
+- Federation plugins (ActivityPub)
+- Third-party plugin development thriving
 
 ### Success Criteria
 - 1000+ active users
@@ -94,11 +99,12 @@
 
 ## Technical Principles
 
-1. **Minimal viable core** - Everything else is a plugin
-2. **Zero configuration** - Works out of the box
-3. **Progressive disclosure** - Power features hidden until needed
-4. **Local-first always** - Network is optional
-5. **Standards over invention** - Use existing protocols
+1. **Plugin-first architecture** - Core stays minimal (~5MB), unlimited extensibility via plugins
+2. **Zero configuration** - Works out of the box, plugins auto-install when needed
+3. **Progressive enhancement** - Start with minimal SSG, add plugins as requirements grow
+4. **Local-first always** - Network optional, plugins run locally
+5. **Standards over invention** - Use existing protocols, orchestrate existing tools
+6. **Process isolation** - Plugins run in sandboxed subprocesses for security and stability
 
 ## Development Velocity
 

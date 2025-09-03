@@ -47,7 +47,7 @@
 ### 2.2 Developer Features
 - [ ] File watching for auto-republish
 - [ ] Command-line interface for power users
-- [ ] Basic plugin system foundation
+- [ ] Plugin development tools and documentation
 
 ## Phase 3: Community Beta
 
@@ -324,6 +324,272 @@ Result: Homepage + auto-generated collection pages
 - Other files - Copy as-is
 
 *Simple rules. Clear outcomes. No surprises.*
+
+## Plugin Architecture
+
+### Core Strategy: Minimal Core + Plugin Ecosystem
+
+moss achieves unlimited extensibility through a plugin-first architecture. The core remains minimal (~5MB), handling only folder analysis and plugin orchestration. Everything else—SSGs, themes, publishers—lives in plugins.
+
+**Reference**: See [Plugin Architecture Documentation](plugin-architecture.md) for complete technical specifications.
+
+### Phase 1: Plugin Infrastructure Foundation
+
+**Goal**: Establish plugin system with default minimal SSG
+
+**Core Components**:
+- Plugin discovery and loading system
+- JSON-RPC communication protocol  
+- Plugin manifest specification
+- Security sandbox for plugin execution
+
+**Default Plugin**: Minimal SSG
+- Ultra-lightweight Rust implementation (~200 lines)
+- Single beautiful template with moss green branding
+- <1 second build time for typical content
+- No external dependencies
+- Bundled with moss core
+
+**Plugin Interface**:
+```rust
+pub trait Plugin: Send + Sync {
+    fn manifest(&self) -> &PluginManifest;
+    fn can_handle(&self, request: &PluginRequest) -> bool;
+    fn execute(&self, request: PluginRequest) -> Result<PluginResponse>;
+}
+
+pub trait SsgPlugin: Plugin {
+    fn required_structure(&self) -> FolderMapping;
+    fn supported_themes(&self) -> Vec<ThemeInfo>;
+    fn build_site(&self, config: &BuildConfig) -> Result<SiteResult>;
+}
+```
+
+### Phase 2: Core SSG Plugins
+
+**Goal**: Transform existing SSG integrations into standalone plugins
+
+**Plugin Development Priority**:
+1. **Jekyll Plugin** - Largest theme ecosystem (300+ themes)
+2. **Hugo Plugin** - High performance, quality themes  
+3. **Zola Plugin** - Rust-native, minimal binary
+4. **Theme Plugin System** - Visual marketplace integration
+
+**Jekyll Plugin Example**:
+```rust
+struct JekyllPlugin {
+    gem_home: PathBuf,
+}
+
+impl SsgPlugin for JekyllPlugin {
+    fn build_site(&self, config: &BuildConfig) -> Result<SiteResult> {
+        // 1. Create virtual Jekyll structure in .moss/build/
+        self.adapt_folder_structure(config.source, config.build_dir)?;
+        
+        // 2. Generate _config.yml with user preferences
+        self.generate_jekyll_config(config)?;
+        
+        // 3. Execute jekyll build via subprocess
+        let result = self.run_jekyll_build(config.build_dir)?;
+        
+        Ok(SiteResult {
+            page_count: result.page_count,
+            build_time: result.duration,
+            output_path: config.output_dir,
+        })
+    }
+}
+```
+
+### Plugin Communication Architecture
+
+**Protocol**: JSON-RPC over subprocess for language-agnostic plugins
+
+**Benefits**:
+- Process isolation (plugin crashes don't affect core)
+- Security sandbox 
+- Language independence
+- Compatibility with existing SSG binaries
+
+**Message Flow**:
+```rust
+// Core → Plugin request
+{
+  "jsonrpc": "2.0",
+  "method": "build_site",
+  "params": {
+    "source_path": "/Users/jane/blog",
+    "output_path": "/Users/jane/blog/.moss/site",
+    "theme": "minimal"
+  },
+  "id": 1
+}
+
+// Plugin → Core response  
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "page_count": 12,
+    "build_time_ms": 850,
+    "assets": ["style.css", "main.js"]
+  },
+  "id": 1
+}
+```
+
+### Folder Adaptation Through Plugins
+
+**Problem**: SSGs expect specific structures, users prefer their organization
+
+**Solution**: Each plugin defines its required structure mapping
+
+```rust
+pub struct FolderMapping {
+    pub content_dirs: HashMap<String, String>,
+    pub asset_dirs: HashMap<String, String>, 
+    pub config_files: Vec<ConfigFile>,
+}
+
+impl JekyllPlugin {
+    fn required_structure(&self) -> FolderMapping {
+        FolderMapping {
+            content_dirs: hashmap!{
+                "articles" => "_posts",
+                "pages" => ".",
+            },
+            asset_dirs: hashmap!{
+                "images" => "assets/images",
+                "styles" => "_sass",
+            },
+            config_files: vec![
+                ConfigFile::Generate {
+                    path: "_config.yml",
+                    template: include_str!("jekyll_config.yml"),
+                },
+            ],
+        }
+    }
+}
+```
+
+### Plugin Discovery and Loading
+
+**Discovery Locations**:
+1. Bundled plugins: `Contents/Resources/plugins/`
+2. User plugins: `~/.moss/plugins/`  
+3. System plugins: `/usr/local/lib/moss/plugins/`
+
+**Loading Process**:
+```rust
+pub struct PluginManager {
+    loaded_plugins: HashMap<String, Box<dyn Plugin>>,
+}
+
+impl PluginManager {
+    pub fn load_all_plugins(&mut self) -> Result<()> {
+        let manifests = self.discover_plugin_manifests()?;
+        let compatible = self.filter_compatible_plugins(manifests)?;
+        let ordered = self.resolve_plugin_dependencies(compatible)?;
+        
+        for manifest in ordered {
+            let plugin = self.instantiate_plugin(manifest)?;
+            plugin.initialize()?;
+            self.loaded_plugins.insert(plugin.name().to_string(), plugin);
+        }
+        Ok(())
+    }
+}
+```
+
+### Integration with Current Architecture
+
+**Updated Compilation Flow**:
+```rust
+pub fn compile_folder_with_options(folder_path: String, auto_serve: bool) -> Result<String> {
+    // 1. Analyze folder structure (core responsibility)
+    let project = analyze_folder_structure(&folder_path)?;
+    
+    // 2. Select appropriate SSG plugin
+    let plugin_manager = PluginManager::instance();
+    let ssg_plugin = plugin_manager.select_ssg_plugin(&project)?;
+    
+    // 3. Execute plugin
+    let request = PluginRequest::BuildSite {
+        source_path: folder_path.clone(),
+        output_path: format!("{}/.moss/site", folder_path),
+        project: project,
+        theme: None, // Future: user selection
+    };
+    
+    let response = ssg_plugin.execute(request)?;
+    
+    // 4. Handle result (core responsibility)
+    if auto_serve {
+        start_site_server(&response.output_path)?;
+    }
+    
+    Ok(response.build_message)
+}
+```
+
+### Migration Strategy
+
+**Phase 1: Infrastructure** (Current Sprint)
+- Implement plugin loading system
+- Define plugin API traits
+- Create plugin communication protocol
+- Extract minimal SSG as first plugin
+
+**Phase 2: Plugin Conversion**
+- Convert Jekyll integration to plugin
+- Convert Hugo integration to plugin  
+- Add theme plugin system
+- Implement plugin marketplace
+
+**Phase 3: Ecosystem Growth**
+- Third-party plugin support
+- Plugin development documentation
+- Remote plugin registry
+- Community contribution tools
+
+**Backward Compatibility**: Existing functionality preserved during transition
+
+### Plugin Directory Structure
+
+```
+.moss/
+├── build/              # Temporary SSG-compatible structure (per plugin)
+├── site/               # Generated HTML output 
+├── plugins/            # User-installed plugins
+│   ├── jekyll/         # Plugin directory
+│   │   ├── plugin.toml # Plugin manifest
+│   │   └── moss-jekyll # Plugin executable
+│   └── hugo/           # Another plugin
+├── cache/              # Downloaded binaries and themes
+├── themes/             # Installed theme files  
+├── config.toml         # User configuration
+└── logs/               # Plugin execution logs
+```
+
+### Success Metrics
+
+**Phase 1 Success (Plugin Infrastructure)**:
+- Plugin loading time: <100ms
+- Default minimal plugin builds in <1 second
+- Zero configuration for new users
+- Seamless transition from current implementation
+
+**Phase 2 Success (Core Plugins)**:  
+- Jekyll/Hugo plugins functional
+- Plugin communication overhead: <5% of build time
+- Theme selection via plugins working
+- 100+ themes accessible through plugin marketplace
+
+**Long-term Success (Ecosystem)**:
+- Third-party plugins available
+- Community plugin contributions
+- Universal social features via Lichen plugin
+- moss as orchestration platform for entire static site ecosystem
 
 ## Platform Integration Details
 
