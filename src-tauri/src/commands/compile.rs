@@ -1,4 +1,4 @@
-//! Tauri commands and business logic for moss compilation and publishing system
+//! Tauri commands and business logic for moss compilation system
 
 use crate::types::*;
 use walkdir::WalkDir;

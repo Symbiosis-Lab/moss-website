@@ -2,9 +2,9 @@
 //!
 //! Contains all Tauri command implementations for the moss application
 
-pub mod publish;
+pub mod compile;
 pub mod preview;
 
-// Re-export all commands from publish module for backward compatibility
-pub use publish::*;
+// Re-export all commands for convenience
+pub use compile::*;
 pub use preview::*;
