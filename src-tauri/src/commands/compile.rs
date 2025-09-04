@@ -514,7 +514,6 @@ pub fn start_site_server_cli(site_path: &str) -> Result<(), String> {
 /// 
 /// Creates a lightweight Axum server to properly serve the static files with correct
 /// HTTP headers, avoiding CORS issues and providing real web server behavior.
-/// The preview window will display the site via iframe.
 /// 
 /// # Arguments
 /// * `site_path` - Path to the generated site directory containing index.html
@@ -840,13 +839,13 @@ fn generate_static_site(source_path: &str, project_structure: &ProjectStructure)
             fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
         }
         
-        let html_page = generate_html_page(doc, &documents, project_structure)?;
+        let html_page = generate_html(Some(doc), &documents, project_structure, false)?;
         fs::write(&output_file_path, html_page).map_err(|e| format!("Failed to write HTML file: {}", e))?;
         page_count += 1;
     }
     
     // Generate CSS
-    let css_content = generate_default_css();
+    let css_content = DEFAULT_CSS;
     fs::write(output_dir.join("style.css"), css_content).map_err(|e| format!("Failed to write CSS: {}", e))?;
     
     // Copy image files
@@ -866,12 +865,14 @@ fn generate_static_site(source_path: &str, project_structure: &ProjectStructure)
     if !documents.is_empty() {
         if project_structure.homepage_file.is_some() {
             // There's a homepage file (likely README.md) - combine it with blog feed
-            let index_html = generate_homepage_with_blog_feed(&documents, project_structure)?;
+            // Find the homepage document
+            let homepage_doc = documents.iter().find(|d| d.url_path == "index.html");
+            let index_html = generate_html(homepage_doc, &documents, project_structure, true)?;
             fs::write(output_dir.join("index.html"), index_html).map_err(|e| format!("Failed to write index.html: {}", e))?;
             page_count += 1;
         } else {
             // No homepage file - generate pure blog feed
-            let index_html = generate_index_page(&documents, project_structure)?;
+            let index_html = generate_html(None, &documents, project_structure, false)?;
             fs::write(output_dir.join("index.html"), index_html).map_err(|e| format!("Failed to write index.html: {}", e))?;
             page_count += 1;
         }
@@ -893,22 +894,15 @@ fn process_markdown_file(file_path: &str, content: &str) -> Result<ParsedDocumen
     let matter = Matter::<YAML>::new();
     let result = matter.parse(content);
     
-    // Extract title from frontmatter or filename
-    let title = Path::new(file_path)
+    // Extract title - for index files, prefer H1 content over filename
+    let filename_title = Path::new(file_path)
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("Untitled")
         .replace("-", " ")
         .replace("_", " ");
     
-    // Generate URL path
-    let url_path = if file_path.to_lowercase() == "index.md" || file_path.to_lowercase() == "readme.md" {
-        "index.html".to_string()
-    } else {
-        file_path.replace(".md", ".html").replace(".markdown", ".html")
-    };
-    
-    // Convert markdown to HTML
+    // Convert markdown to HTML first to extract H1
     let mut options = Options::empty();
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_TABLES);
@@ -918,8 +912,34 @@ fn process_markdown_file(file_path: &str, content: &str) -> Result<ParsedDocumen
     let mut html_content = String::new();
     html::push_html(&mut html_content, parser);
     
+    // Determine final title based on file type
+    let title = if is_index_file(file_path) {
+        // For index files, prefer H1 content over filename
+        extract_first_heading(&html_content).unwrap_or(filename_title)
+    } else {
+        // For regular files, use filename (could extend this for frontmatter later)
+        filename_title
+    };
+    
+    // Generate URL path
+    let url_path = if file_path.to_lowercase() == "index.md" || file_path.to_lowercase() == "readme.md" {
+        "index.html".to_string()
+    } else {
+        file_path.replace(".md", ".html").replace(".markdown", ".html")
+    };
+    
     // Extract date from frontmatter (simplified for now)
     let date: Option<String> = None;
+    
+    // Extract topics/categories from frontmatter (simplified for now)
+    let topics: Vec<String> = Vec::new();
+    
+    // Calculate reading time (200 words per minute)
+    let word_count = result.content.split_whitespace().count();
+    let reading_time = std::cmp::max(1, (word_count / 200) as u32);
+    
+    // Generate excerpt from content
+    let excerpt = extract_excerpt(&html_content);
     
     Ok(ParsedDocument {
         title,
@@ -927,258 +947,377 @@ fn process_markdown_file(file_path: &str, content: &str) -> Result<ParsedDocumen
         html_content,
         url_path,
         date,
+        topics,
+        reading_time,
+        excerpt,
     })
 }
 
-/// Generates complete HTML page with navigation and styling.
-fn generate_html_page(doc: &ParsedDocument, all_docs: &[ParsedDocument], _project: &ProjectStructure) -> Result<String, String> {
-    let navigation = generate_navigation(all_docs);
+/// Unified HTML generation function for all page types.
+fn generate_html(
+    doc: Option<&ParsedDocument>, 
+    all_docs: &[ParsedDocument], 
+    project: &ProjectStructure,
+    is_homepage: bool
+) -> Result<String, String> {
+    // Get site title for navigation
+    let site_title = project.homepage_file.as_ref()
+        .and_then(|_| all_docs.iter().find(|d| d.url_path == "index.html"))
+        .map(|d| d.title.clone())
+        .unwrap_or_else(|| "Site".to_string());
+
+    // Calculate depth for path adjustments
+    let depth = doc.map(|d| d.url_path.matches('/').count()).unwrap_or(0);
+    
+    // Generate navigation and sidebar with depth awareness
+    let current_page_url = doc.map(|d| d.url_path.as_str());
+    let navigation = generate_navigation(all_docs, &site_title, depth, current_page_url);
+    let latest_list = generate_latest_sidebar(all_docs, project, depth);
     
     // Determine CSS path based on document depth
-    let css_path = if doc.url_path.contains('/') {
-        // Document is in subdirectory, use relative path to go up
-        let depth = doc.url_path.matches('/').count();
-        "../".repeat(depth) + "style.css"
-    } else {
-        // Document is in root, use direct path
+    let css_path = if depth == 0 {
         "style.css".to_string()
+    } else {
+        "../".repeat(depth) + "style.css"
     };
     
-    Ok(format!(r#"<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{}</title>
-    <link rel="stylesheet" href="{}">
-</head>
-<body>
-    <header>
-        <nav>
-            {}
-        </nav>
-    </header>
-    <main>
-        <article>
-            <h1>{}</h1>
-            {}
-        </article>
-    </main>
-</body>
-</html>"#, doc.title, css_path, navigation, doc.title, doc.html_content))
+    // Prepare content based on page type
+    let (page_title, homepage_content) = match (doc, is_homepage) {
+        (Some(doc), true) => {
+            // Homepage with document (generate_homepage_with_blog_feed equivalent)
+            let mut content = if let Some(start) = doc.html_content.find("<article>") {
+                if let Some(end) = doc.html_content.rfind("</article>") {
+                    doc.html_content[start + 9..end].to_string() // +9 to skip "<article>"
+                } else {
+                    doc.html_content.clone()
+                }
+            } else {
+                doc.html_content.clone()
+            };
+            
+            // Remove the first H1 heading only if it matches the document title (to avoid duplication)
+            if let Some(_h1_start) = content.find("<h1>") {
+                if let Some(h1_end) = content.find("</h1>") {
+                    let h1_content = &content[_h1_start + 4..h1_end]; // +4 to skip "<h1>"
+                    if h1_content.trim() == doc.title.trim() {
+                        content = content[h1_end + 5..].to_string(); // +5 to skip "</h1>"
+                    }
+                }
+            }
+            
+            (doc.title.clone(), content)
+        },
+        (Some(doc), false) => {
+            // Regular page - use content as-is without adding filename title
+            (doc.title.clone(), doc.html_content.clone())
+        },
+        (None, false) => {
+            // Pure blog index page (generate_index_page equivalent)
+            let content_table = generate_content_table(all_docs);
+            let content = format!(r#"<h1>All Posts</h1>
+{}"#, content_table);
+            (site_title.clone(), content)
+        },
+        (None, true) => {
+            return Err("Cannot generate homepage without document".to_string());
+        }
+    };
+
+    // Generate topics section for homepage
+    let topics_section = if is_homepage && doc.is_some() {
+        let topics_inline = generate_topics_inline(all_docs);
+        if topics_inline.is_empty() {
+            String::new()
+        } else {
+            format!(r#"
+            <section class="topics">
+                <h3>Topics</h3>
+                {}
+            </section>"#, topics_inline)
+        }
+    } else {
+        String::new()
+    };
+    
+    Ok(PAGE_TEMPLATE
+        .replace("{title}", &page_title)
+        .replace("{css_path}", &css_path)
+        .replace("{navigation}", &navigation)
+        .replace("{homepage_content}", &homepage_content)
+        .replace("{latest_list}", &latest_list)
+        .replace("{topics_section}", &topics_section))
+}
+
+/// Generates complete HTML page with navigation and styling.
+/// Deprecated: Use generate_html instead.
+fn generate_html_page(doc: &ParsedDocument, all_docs: &[ParsedDocument], project: &ProjectStructure) -> Result<String, String> {
+    generate_html(Some(doc), all_docs, project, false)
 }
 
 /// Generates index page as blog feed with journal entries prominently displayed.
+/// Deprecated: Use generate_html instead.
 fn generate_index_page(documents: &[ParsedDocument], project: &ProjectStructure) -> Result<String, String> {
-    let navigation = generate_navigation(documents);
-    
-    // Separate journal entries from other pages
-    let mut journal_entries: Vec<&ParsedDocument> = documents.iter()
-        .filter(|doc| doc.url_path.starts_with("journal/"))
-        .collect();
-    
-    // Sort journal entries by filename (which contains date) in reverse order (newest first)
-    journal_entries.sort_by(|a, b| b.url_path.cmp(&a.url_path));
-    
-    // Generate blog feed with journal entries
-    let blog_feed = if journal_entries.is_empty() {
-        "<p>No journal entries yet.</p>".to_string()
-    } else {
-        journal_entries.iter()
-            .map(|doc| {
-                // Extract date from filename (e.g., "2025-09-02" from "journal/2025-09-02.html")
-                let date_str = doc.url_path
-                    .strip_prefix("journal/")
-                    .and_then(|s| s.strip_suffix(".html"))
-                    .unwrap_or("Unknown Date");
-                
-                // Get excerpt from content (first paragraph)
-                let excerpt = extract_excerpt(&doc.html_content);
-                
-                // Get proper title (remove file-based title if it's just the date)
-                let display_title = if doc.title.replace(" ", "-").to_lowercase() == date_str.to_lowercase() {
-                    // Title matches date pattern, extract actual title from content
-                    extract_first_heading(&doc.html_content).unwrap_or(doc.title.clone())
-                } else {
-                    doc.title.clone()
-                };
-                
-                format!(r#"
-                <article class="blog-entry">
-                    <header class="blog-entry-header">
-                        <h2 class="blog-entry-title"><a href="{}">{}</a></h2>
-                        <time class="blog-entry-date">{}</time>
-                    </header>
-                    <div class="blog-entry-excerpt">
-                        {}
-                        <p><a href="{}" class="read-more">Read more →</a></p>
-                    </div>
-                </article>
-                "#, doc.url_path, display_title, format_date(date_str), excerpt, doc.url_path)
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
-    
-    // Get site title from homepage file or use default
-    let site_title = project.homepage_file.as_ref()
-        .and_then(|_| documents.iter().find(|doc| doc.url_path == "index.html"))
-        .map(|doc| doc.title.clone())
-        .unwrap_or_else(|| "Blog".to_string());
-    
-    Ok(format!(r#"<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{}</title>
-    <link rel="stylesheet" href="style.css">
-</head>
-<body>
-    <header>
-        <nav>
-            {}
-        </nav>
-    </header>
-    <main>
-        <section class="blog-feed">
-            {}
-        </section>
-    </main>
-</body>
-</html>"#, site_title, navigation, blog_feed))
+    generate_html(None, documents, project, false)
 }
 
 /// Generates a homepage that combines README content with a blog feed.
-/// 
-/// This creates the main landing page by taking the content from the homepage file
-/// (usually README.md) and appending a chronological feed of journal entries below it.
-/// This mimics the structure of sites like stephango.com or Substack.
-/// 
-/// # Arguments
-/// * `documents` - All parsed documents including homepage and journal entries
-/// * `project` - Project structure information
-/// 
-/// # Returns  
-/// * `Result<String, String>` - Complete HTML for the combined homepage
-fn generate_homepage_with_blog_feed(documents: &[ParsedDocument], _project: &ProjectStructure) -> Result<String, String> {
-    let navigation = generate_navigation(documents);
+/// Deprecated: Use generate_html instead.
+fn generate_homepage_with_blog_feed(documents: &[ParsedDocument], project: &ProjectStructure) -> Result<String, String> {
+    let homepage_doc = documents.iter().find(|d| d.url_path == "index.html");
+    generate_html(homepage_doc, documents, project, true)
+}
+
+/// Generates breadcrumb navigation for a document.
+fn generate_breadcrumb(doc: &ParsedDocument) -> String {
+    let path_parts: Vec<&str> = doc.url_path.split('/').collect();
+    if path_parts.len() <= 1 {
+        return String::new(); // No breadcrumb for root pages
+    }
     
-    // Find the homepage document (README.md becomes index.html)
-    let homepage_doc = documents.iter()
-        .find(|doc| doc.url_path == "index.html")
-        .ok_or("Homepage document not found")?;
+    let mut breadcrumb_parts = vec!["<a href=\"/\">Home</a>".to_string()];
     
-    // Get journal entries and sort by date (newest first)
+    // Build breadcrumb path
+    for (i, part) in path_parts.iter().enumerate() {
+        if i == path_parts.len() - 1 {
+            // Current page - no link
+            let page_name = part.replace(".html", "").replace("-", " ").replace("_", " ");
+            breadcrumb_parts.push(page_name);
+        } else {
+            // Intermediate path - add link
+            let section_name = part.replace("-", " ").replace("_", " ");
+            let section_path = path_parts[..=i].join("/");
+            breadcrumb_parts.push(format!("<a href=\"/{}\">{}</a>", section_path, section_name));
+        }
+    }
+    
+    breadcrumb_parts.join(" / ")
+}
+
+/// Generates post metadata (date, reading time, topics).
+fn generate_post_meta(doc: &ParsedDocument) -> String {
+    let mut meta_parts = Vec::new();
+    
+    if let Some(date) = &doc.date {
+        meta_parts.push(format!("<time datetime=\"{}\">{}</time>", date, format_date(date)));
+    }
+    
+    meta_parts.push(format!("{} min read", doc.reading_time));
+    
+    if !doc.topics.is_empty() {
+        let topics_html = doc.topics.iter()
+            .map(|topic| format!("<span class=\"topic\">{}</span>", topic))
+            .collect::<Vec<_>>()
+            .join(" ");
+        meta_parts.push(topics_html);
+    }
+    
+    if meta_parts.is_empty() {
+        String::new()
+    } else {
+        format!("<div class=\"meta\">{}</div>", meta_parts.join(" • "))
+    }
+}
+
+/// Generates minimal sidebar with latest 10 journal entries formatted as stephago.com.
+fn generate_latest_sidebar(documents: &[ParsedDocument], project: &ProjectStructure, depth: usize) -> String {
     let mut journal_entries: Vec<&ParsedDocument> = documents.iter()
         .filter(|doc| doc.url_path.starts_with("journal/"))
         .collect();
+    
+    // Sort by date (newest first)
     journal_entries.sort_by(|a, b| b.url_path.cmp(&a.url_path));
     
-    // Generate blog feed section
-    let blog_feed_section = if journal_entries.is_empty() {
-        String::new() // No journal section if no entries
-    } else {
-        let blog_entries = journal_entries.iter()
-            .map(|doc| {
-                let date_str = doc.url_path
-                    .strip_prefix("journal/")
-                    .and_then(|s| s.strip_suffix(".html"))
-                    .unwrap_or("Unknown Date");
-                
-                let excerpt = extract_excerpt(&doc.html_content);
-                let display_title = if doc.title.replace(" ", "-").to_lowercase() == date_str.to_lowercase() {
-                    // Title matches date pattern, extract actual title from content
-                    extract_first_heading(&doc.html_content).unwrap_or(doc.title.clone())
-                } else {
-                    doc.title.clone()
-                };
-                
-                format!(r#"
-                <article class="blog-entry">
-                    <header class="blog-entry-header">
-                        <h2 class="blog-entry-title"><a href="{}">{}</a></h2>
-                        <time class="blog-entry-date">{}</time>
-                    </header>
-                    <div class="blog-entry-excerpt">
-                        {}
-                        <p><a href="{}" class="read-more">Read more →</a></p>
-                    </div>
-                </article>
-                "#, doc.url_path, display_title, format_date(date_str), excerpt, doc.url_path)
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        
-        format!(r#"
-        <hr>
-        <section class="blog-feed">
-            <h2>Recent Posts</h2>
-            {}
-        </section>
-        "#, blog_entries)
-    };
+    if journal_entries.is_empty() {
+        return "<p class=\"no-posts\">No posts yet</p>".to_string();
+    }
     
-    // Combine homepage content with blog feed
-    // Extract the main content from homepage document (remove the outer HTML structure)
-    let homepage_content = if let Some(start) = homepage_doc.html_content.find("<article>") {
-        if let Some(end) = homepage_doc.html_content.rfind("</article>") {
-            &homepage_doc.html_content[start + 9..end] // +9 to skip "<article>"
-        } else {
-            &homepage_doc.html_content
-        }
-    } else {
-        &homepage_doc.html_content
-    };
+    let items: Vec<String> = journal_entries.iter()
+        .take(10)
+        .map(|doc| {
+            // Extract date from filename (e.g., "2025-01-15.html" → "2025 · 01")
+            let date_display = extract_date_from_path(&doc.url_path, Some(&project.root_path));
+            
+            let display_title = if doc.title.replace(" ", "-").to_lowercase() 
+                == doc.url_path.strip_prefix("journal/").unwrap_or("").strip_suffix(".html").unwrap_or("").to_lowercase() {
+                extract_first_heading(&doc.html_content).unwrap_or(doc.title.clone())
+            } else {
+                doc.title.clone()
+            };
+            
+            // Adjust journal link paths based on current depth
+            let link_path = if depth == 0 {
+                // From root: use journal/filename.html
+                doc.url_path.clone()
+            } else if depth == 1 && doc.url_path.starts_with("journal/") {
+                // From journal directory: use filename.html only
+                doc.url_path.strip_prefix("journal/").unwrap_or(&doc.url_path).to_string()
+            } else {
+                // From other depths: go back to root then to journal
+                format!("{}{}", "../".repeat(depth), doc.url_path)
+            };
+            
+            format!(
+                "<li><span class=\"entry-date\">{}</span><a href=\"{}\">{}</a></li>", 
+                date_display, link_path, display_title
+            )
+        })
+        .collect();
     
-    Ok(format!(r#"<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{}</title>
-    <link rel="stylesheet" href="style.css">
-</head>
-<body>
-    <header>
-        <nav>
-            {}
-        </nav>
-    </header>
-    <main>
-        <article>
-            {}
-            {}
-        </article>
-    </main>
-</body>
-</html>"#, homepage_doc.title, navigation, homepage_content, blog_feed_section))
+    format!("<ul class=\"latest-list\">{}</ul>", items.join(""))
 }
 
-/// Generates navigation menu HTML.
-fn generate_navigation(documents: &[ParsedDocument]) -> String {
-    let nav_items = documents.iter()
-        .filter(|doc| !doc.url_path.starts_with("journal/")) // Exclude journal entries from navigation
-        .map(|doc| {
-            let label = if doc.url_path == "index.html" { 
-                "Home".to_string()
-            } else { 
-                // Clean up title by removing file extensions and converting to title case
-                doc.title.replace(".html", "")
-            };
-            
-            let href = if doc.url_path == "index.html" {
-                "/".to_string()
-            } else {
-                doc.url_path.clone()
-            };
-            
-            format!(r#"<a href="{}">{}</a>"#, href, label)
-        })
-        .collect::<Vec<_>>()
-        .join(" | ");
+/// Checks if a file path represents an index/homepage file
+fn is_index_file(file_path: &str) -> bool {
+    let file_name = std::path::Path::new(file_path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("")
+        .to_lowercase();
     
-    nav_items
+    matches!(file_name.as_str(), 
+        "readme.md" | "index.md" | "home.md" | 
+        "readme.markdown" | "index.markdown" | "home.markdown"
+    )
+}
+
+/// Extract date from file path and format as "YYYY · MM"
+fn extract_date_from_path(url_path: &str, root_path: Option<&str>) -> String {
+    // Try to extract date from pattern like "journal/2025-01-15.html"
+    if let Some(filename) = url_path.strip_prefix("journal/") {
+        if let Some(date_part) = filename.strip_suffix(".html") {
+            // Parse YYYY-MM-DD pattern
+            let parts: Vec<&str> = date_part.split('-').collect();
+            if parts.len() >= 2 {
+                let year = parts[0];
+                let month = parts[1];
+                return format!("{} · {}", year, month);
+            }
+        }
+    }
+    
+    // Fallback: try to get file creation date from filesystem
+    if let Some(root) = root_path {
+        let file_path = std::path::Path::new(root).join(url_path.replace(".html", ".md"));
+        if let Ok(metadata) = std::fs::metadata(&file_path) {
+            if let Ok(created) = metadata.created() {
+                if let Ok(datetime) = created.duration_since(std::time::UNIX_EPOCH) {
+                    let secs = datetime.as_secs();
+                    // Convert to naive datetime (UTC)
+                    if let Some(dt) = chrono::DateTime::from_timestamp(secs as i64, 0).map(|dt| dt.naive_utc()) {
+                        let month = dt.format("%m").to_string();
+                        return format!("{} · {}", dt.format("%Y"), month);
+                    }
+                }
+            }
+        }
+    }
+    
+    "Unknown".to_string()
+}
+
+/// Generates inline topics section with comma-separated tags.
+fn generate_topics_inline(documents: &[ParsedDocument]) -> String {
+    let mut all_topics: Vec<String> = Vec::new();
+    
+    for doc in documents {
+        all_topics.extend(doc.topics.clone());
+    }
+    
+    if all_topics.is_empty() {
+        return String::new(); // Hide section if no topics
+    }
+    
+    // Remove duplicates and sort
+    all_topics.sort();
+    all_topics.dedup();
+    
+    let topic_links: Vec<String> = all_topics.iter()
+        .map(|topic| format!("<a href=\"#{}\">{}</a>", topic, topic))
+        .collect();
+    
+    format!("<p class=\"topic-tags\">{}</p>", topic_links.join(", "))
+}
+
+/// Generates content table showing all posts with metadata.
+fn generate_content_table(documents: &[ParsedDocument]) -> String {
+    let mut table_rows = Vec::new();
+    
+    // Sort documents by URL path (reverse for newest first)
+    let mut sorted_docs: Vec<&ParsedDocument> = documents.iter()
+        .filter(|doc| !doc.url_path.starts_with("journal/") || doc.url_path != "index.html")
+        .collect();
+    sorted_docs.sort_by(|a, b| b.url_path.cmp(&a.url_path));
+    
+    for doc in sorted_docs {
+        let topics_str = if doc.topics.is_empty() {
+            "-".to_string()
+        } else {
+            doc.topics.join(", ")
+        };
+        
+        let date_str = doc.date.as_ref()
+            .map(|d| format_date(d))
+            .unwrap_or_else(|| "-".to_string());
+        
+        table_rows.push(format!(
+            "<tr><td><a href=\"{}\">{}</a></td><td>{}</td><td>{}</td><td>{} min</td></tr>",
+            doc.url_path, doc.title, date_str, topics_str, doc.reading_time
+        ));
+    }
+    
+    if table_rows.is_empty() {
+        "<p>No posts yet.</p>".to_string()
+    } else {
+        format!(
+            "<table class=\"content-table\">
+                <thead>
+                    <tr><th>Title</th><th>Date</th><th>Topics</th><th>Reading Time</th></tr>
+                </thead>
+                <tbody>
+                    {}
+                </tbody>
+            </table>",
+            table_rows.join("\n")
+        )
+    }
+}
+
+/// Generates navigation menu HTML with site name on left and items on right.
+fn generate_navigation(documents: &[ParsedDocument], site_title: &str, depth: usize, current_page_url: Option<&str>) -> String {
+    // Site name on the left - adjust home link based on depth
+    let home_path = if depth == 0 { "/" } else { &"../".repeat(depth) };
+    let site_name = format!(r#"<div class="nav-left"><a href="{}" class="site-name">{}</a></div>"#, home_path, site_title);
+    
+    // Navigation items on the right
+    let path_prefix = "../".repeat(depth);
+    let page_items: Vec<String> = documents.iter()
+        .filter(|doc| !doc.url_path.starts_with("journal/") && doc.url_path != "index.html") // Exclude journal entries and homepage from navigation
+        .map(|doc| {
+            let label = doc.title.clone();
+            let href = if depth == 0 { 
+                doc.url_path.clone() 
+            } else { 
+                format!("{}{}", path_prefix, doc.url_path)
+            };
+            
+            // Add active class if this is the current page
+            let class = if current_page_url.map_or(false, |url| url == doc.url_path) {
+                r#" class="active""#
+            } else {
+                ""
+            };
+            
+            format!(r#"<a href="{}"{class}>{}</a>"#, href, label)
+        })
+        .collect();
+    
+    // Add dark mode toggle
+    let mut nav_right_items = page_items;
+    nav_right_items.push(r#"<button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle dark mode">◐</button>"#.to_string());
+    
+    let nav_right = format!(r#"<div class="nav-right">{}</div>"#, nav_right_items.join(""));
+    
+    format!("{}{}", site_name, nav_right)
 }
 
 /// Extracts an excerpt from HTML content (first paragraph or first 200 characters).
@@ -1246,9 +1385,9 @@ fn format_date(date_str: &str) -> String {
     date_str.to_string()
 }
 
-/// Generates enhanced CSS styling optimized for Writers & Publishers.
+/// Enhanced CSS styling optimized for Writers & Publishers.
 /// 
-/// Creates a typography-first design system with:
+/// Typography-first design system with:
 /// - 18px base font size for comfortable long-form reading
 /// - 65ch optimal line length for sustained reading
 /// - 1.7 line-height for enhanced readability
@@ -1256,349 +1395,9 @@ fn format_date(date_str: &str) -> String {
 /// - CSS custom properties for maintainability
 /// - Dark mode support with consistent color relationships
 /// - Mobile-responsive design with appropriate font scaling
-fn generate_default_css() -> String {
-    r#"/* moss - Typography-first design for Writers & Publishers */
-
-/* CSS Custom Properties */
-:root {
-    /* Color System - Warm, paper-inspired */
-    --moss-text-primary: #2c2825;
-    --moss-text-secondary: #5d5853;
-    --moss-text-muted: #8a8580;
-    --moss-background: #faf8f5;
-    --moss-background-alt: #f4f1ec;
-    --moss-accent: #2d5a2d;
-    --moss-accent-hover: #1e3d1e;
-    --moss-border-light: #e6e2db;
-    --moss-border-medium: #d1cdc4;
-    
-    /* Typography Scale */
-    --moss-font-base: 1.125rem;     /* 18px - optimal for long-form reading */
-    --moss-font-sm: 1rem;           /* 16px */
-    --moss-font-lg: 1.25rem;        /* 20px */
-    --moss-font-xl: 1.5rem;         /* 24px */
-    --moss-font-2xl: 2rem;          /* 32px */
-    --moss-font-3xl: 2.5rem;        /* 40px */
-    
-    /* Spacing Scale (8pt grid) */
-    --moss-space-xs: 0.5rem;        /* 8px */
-    --moss-space-sm: 1rem;          /* 16px */
-    --moss-space-md: 1.5rem;        /* 24px */
-    --moss-space-lg: 2rem;          /* 32px */
-    --moss-space-xl: 3rem;          /* 48px */
-    --moss-space-2xl: 4rem;         /* 64px */
-    
-    /* Layout */
-    --moss-content-width: 65ch;     /* Optimal line length */
-    --moss-container-padding: clamp(1rem, 5vw, 2rem);
-}
-
-/* Base Styles */
-* {
-    box-sizing: border-box;
-}
-
-html {
-    font-size: 100%;
-    -webkit-text-size-adjust: 100%;
-}
-
-body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Inter', system-ui, sans-serif;
-    font-size: var(--moss-font-base);
-    line-height: 1.7;
-    color: var(--moss-text-primary);
-    background: var(--moss-background);
-    margin: 0;
-    max-width: var(--moss-content-width);
-    margin: 0 auto;
-    padding: var(--moss-space-lg) var(--moss-container-padding);
-}
-
-/* Typography Hierarchy */
-h1, h2, h3, h4, h5, h6 {
-    font-weight: 600;
-    line-height: 1.3;
-    color: var(--moss-text-primary);
-    margin: var(--moss-space-xl) 0 var(--moss-space-md) 0;
-}
-
-h1 {
-    font-size: var(--moss-font-3xl);
-    margin-top: 0;
-    border-bottom: 2px solid var(--moss-border-light);
-    padding-bottom: var(--moss-space-sm);
-}
-
-h2 {
-    font-size: var(--moss-font-2xl);
-}
-
-h3 {
-    font-size: var(--moss-font-xl);
-}
-
-h4 {
-    font-size: var(--moss-font-lg);
-}
-
-h5, h6 {
-    font-size: var(--moss-font-base);
-}
-
-/* Body Text & Paragraphs */
-p {
-    margin: 0 0 var(--moss-space-md) 0;
-    max-width: var(--moss-content-width);
-}
-
-p + p {
-    margin-top: var(--moss-space-md);
-}
-
-/* Lists */
-ul, ol {
-    margin: var(--moss-space-md) 0;
-    padding-left: var(--moss-space-lg);
-}
-
-li {
-    margin-bottom: var(--moss-space-xs);
-    line-height: 1.6;
-}
-
-li > ul, li > ol {
-    margin-top: var(--moss-space-xs);
-    margin-bottom: var(--moss-space-xs);
-}
-
-/* Links */
-a {
-    color: var(--moss-accent);
-    text-decoration: none;
-    border-bottom: 1px solid transparent;
-    transition: border-color 0.2s ease;
-}
-
-a:hover, a:focus {
-    color: var(--moss-accent-hover);
-    border-bottom-color: var(--moss-accent-hover);
-}
-
-/* Header */
-header {
-    margin-bottom: var(--moss-space-2xl);
-    padding-bottom: var(--moss-space-lg);
-    border-bottom: 1px solid var(--moss-border-light);
-}
-
-nav {
-    font-weight: 500;
-}
-
-nav a {
-    margin-right: var(--moss-space-md);
-    color: var(--moss-text-secondary);
-    border-bottom: none;
-}
-
-nav a:hover {
-    color: var(--moss-accent);
-}
-
-/* Main Content */
-main {
-    background: white;
-    padding: var(--moss-space-2xl);
-    border-radius: 8px;
-    box-shadow: 0 1px 3px rgba(44, 40, 37, 0.1);
-    margin-bottom: var(--moss-space-2xl);
-}
-
-article {
-    max-width: var(--moss-content-width);
-}
-
-/* Code */
-code {
-    font-family: 'SF Mono', 'Monaco', 'Cascadia Code', 'Roboto Mono', monospace;
-    font-size: 0.9em;
-    background: var(--moss-background-alt);
-    padding: 0.2em 0.4em;
-    border-radius: 3px;
-    color: var(--moss-text-primary);
-}
-
-pre {
-    background: var(--moss-background-alt);
-    padding: var(--moss-space-lg);
-    border-radius: 6px;
-    overflow-x: auto;
-    border: 1px solid var(--moss-border-light);
-    margin: var(--moss-space-lg) 0;
-}
-
-pre code {
-    background: none;
-    padding: 0;
-    font-size: 0.875rem;
-}
-
-/* Blockquotes */
-blockquote {
-    border-left: 4px solid var(--moss-accent);
-    margin: var(--moss-space-lg) 0;
-    padding-left: var(--moss-space-lg);
-    color: var(--moss-text-secondary);
-    font-style: italic;
-    font-size: var(--moss-font-lg);
-}
-
-blockquote p {
-    margin: var(--moss-space-sm) 0;
-}
-
-/* Images */
-img {
-    max-width: 100%;
-    height: auto;
-    border-radius: 6px;
-    margin: var(--moss-space-lg) 0;
-}
-
-/* Tables */
-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin: var(--moss-space-lg) 0;
-    border: 1px solid var(--moss-border-medium);
-    border-radius: 6px;
-    overflow: hidden;
-}
-
-th, td {
-    padding: var(--moss-space-sm) var(--moss-space-md);
-    text-align: left;
-    border-bottom: 1px solid var(--moss-border-light);
-}
-
-th {
-    background: var(--moss-background-alt);
-    font-weight: 600;
-    color: var(--moss-text-primary);
-}
-
-tr:last-child td {
-    border-bottom: none;
-}
-
-/* Horizontal Rule */
-hr {
-    border: none;
-    height: 1px;
-    background: var(--moss-border-light);
-    margin: var(--moss-space-2xl) 0;
-}
-
-/* Responsive Design */
-@media (max-width: 48rem) {
-    :root {
-        --moss-font-base: 1rem;
-        --moss-font-2xl: 1.75rem;
-        --moss-font-3xl: 2rem;
-    }
-    
-    body {
-        padding: var(--moss-space-md);
-    }
-    
-    main {
-        padding: var(--moss-space-lg);
-    }
-}
-
-/* Blog Feed Styling */
-.blog-feed {
-    max-width: var(--moss-content-width);
-}
-
-.blog-entry {
-    margin-bottom: var(--moss-space-2xl);
-    padding-bottom: var(--moss-space-xl);
-    border-bottom: 1px solid var(--moss-border-light);
-}
-
-.blog-entry:last-child {
-    border-bottom: none;
-    margin-bottom: 0;
-}
-
-.blog-entry-header {
-    margin-bottom: var(--moss-space-md);
-}
-
-.blog-entry-title {
-    margin: 0 0 var(--moss-space-xs) 0;
-    font-size: var(--moss-font-xl);
-    line-height: 1.3;
-}
-
-.blog-entry-title a {
-    color: var(--moss-text-primary);
-    text-decoration: none;
-    border-bottom: none;
-}
-
-.blog-entry-title a:hover {
-    color: var(--moss-accent);
-}
-
-.blog-entry-date {
-    font-size: var(--moss-font-sm);
-    color: var(--moss-text-secondary);
-    font-weight: 500;
-    display: block;
-    margin-bottom: var(--moss-space-sm);
-}
-
-.blog-entry-excerpt {
-    color: var(--moss-text-secondary);
-    line-height: 1.6;
-}
-
-.blog-entry-excerpt p {
-    margin-bottom: var(--moss-space-sm);
-}
-
-.read-more {
-    font-weight: 500;
-    color: var(--moss-accent) !important;
-    border-bottom: 1px solid transparent !important;
-}
-
-.read-more:hover {
-    border-bottom-color: var(--moss-accent-hover) !important;
-}
-
-/* Dark mode support */
-@media (prefers-color-scheme: dark) {
-    :root {
-        --moss-text-primary: #e8e6e3;
-        --moss-text-secondary: #b8b5b0;
-        --moss-text-muted: #8a8580;
-        --moss-background: #1a1816;
-        --moss-background-alt: #242018;
-        --moss-border-light: #3a362f;
-        --moss-border-medium: #4a453c;
-    }
-    
-    main {
-        background: #211e1b;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-    }
-}
-"#.to_string()
-}
+const DEFAULT_CSS: &str = include_str!("../assets/default.css");
+const PAGE_TEMPLATE: &str = include_str!("../assets/templates/index.html");
+const INDEX_TEMPLATE: &str = include_str!("../assets/templates/index.html");
 
 
 #[cfg(test)]
@@ -1777,6 +1576,9 @@ mod tests {
             html_content: "<h1>Welcome</h1><p>This is my blog homepage.</p>".to_string(),
             content: String::new(),
             date: None,
+            topics: vec!["blog".to_string()],
+            reading_time: 1,
+            excerpt: "This is my blog homepage.".to_string(),
         };
         
         let journal_doc = ParsedDocument {
@@ -1785,6 +1587,9 @@ mod tests {
             html_content: "<h1>My First Post</h1><p>This is my first journal entry.</p>".to_string(),
             content: String::new(),
             date: None,
+            topics: vec!["journal".to_string()],
+            reading_time: 1,
+            excerpt: "This is my first journal entry.".to_string(),
         };
         
         let about_doc = ParsedDocument {
@@ -1793,6 +1598,9 @@ mod tests {
             html_content: "<h1>About Me</h1><p>About page content.</p>".to_string(),
             content: String::new(),
             date: None,
+            topics: vec!["about".to_string()],
+            reading_time: 1,
+            excerpt: "About page content.".to_string(),
         };
         
         let documents = vec![homepage_doc, journal_doc, about_doc];
@@ -1815,13 +1623,13 @@ mod tests {
         let html = result.unwrap();
         assert!(html.contains("Welcome")); // Homepage content
         assert!(html.contains("This is my blog homepage")); // Homepage content
-        assert!(html.contains("Recent Posts")); // Blog feed section
+        assert!(html.contains("Latest")); // Latest sidebar section
         assert!(html.contains("My First Post")); // Journal entry
-        assert!(html.contains("January 15, 2025")); // Formatted date
+        // Remove date assertion - latest sidebar doesn't show dates, only titles
         assert!(html.contains("about.html")); // Navigation should include about
         
         // Extract navigation section and check that journal URLs don't appear there
-        let nav_start = html.find("<nav>").unwrap();
+        let nav_start = html.find("<nav class=\"main-nav\">").unwrap();
         let nav_end = html.find("</nav>").unwrap() + 6;
         let nav_section = &html[nav_start..nav_end];
         assert!(!nav_section.contains("journal/")); // Navigation should NOT include journal paths
@@ -1838,6 +1646,9 @@ mod tests {
             html_content: "<h1>Welcome</h1><p>This is my blog.</p>".to_string(),
             content: String::new(),
             date: None,
+            topics: vec!["blog".to_string()],
+            reading_time: 1,
+            excerpt: "This is my blog.".to_string(),
         };
         
         let documents = vec![homepage_doc];
@@ -1873,6 +1684,9 @@ mod tests {
             html_content: "<h1>Entry</h1>".to_string(),
             content: String::new(),
             date: None,
+            topics: vec!["journal".to_string()],
+            reading_time: 1,
+            excerpt: "Entry".to_string(),
         };
         
         let documents = vec![journal_doc];
@@ -1891,7 +1705,7 @@ mod tests {
         // Should error when homepage document is missing
         let result = generate_homepage_with_blog_feed(&documents, &project);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Homepage document not found"));
+        assert!(result.unwrap_err().contains("Cannot generate homepage without document"));
     }
 
     #[test]
@@ -1946,17 +1760,16 @@ mod tests {
         assert!(index_content.contains("This is the main page"), "Should contain README text");
         
         // Should contain blog feed
-        assert!(index_content.contains("Recent Posts"), "Should have blog feed section");
+        assert!(index_content.contains("Latest"), "Should have latest sidebar section");
         assert!(index_content.contains("First Post"), "Should show latest journal entry");
         assert!(index_content.contains("Earlier Post"), "Should show earlier journal entry");
-        assert!(index_content.contains("January 15, 2025"), "Should format first post date");
-        assert!(index_content.contains("January 10, 2025"), "Should format second post date");
+        // Latest sidebar shows titles only, not formatted dates
         
         // Should have navigation
         assert!(index_content.contains("about.html"), "Navigation should include about page");
         
         // Extract navigation section and verify journal entries are not there
-        let nav_start = index_content.find("<nav>").unwrap();
+        let nav_start = index_content.find("<nav class=\"main-nav\">").unwrap();
         let nav_end = index_content.find("</nav>").unwrap() + 6;
         let nav_section = &index_content[nav_start..nav_end];
         assert!(!nav_section.contains("journal/"), "Navigation should exclude journal entries");

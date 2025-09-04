@@ -154,4 +154,10 @@ pub struct ParsedDocument {
     pub url_path: String,
     /// Publication date if specified in frontmatter
     pub date: Option<String>,
+    /// Topics/categories from frontmatter
+    pub topics: Vec<String>,
+    /// Estimated reading time in minutes
+    pub reading_time: u32,
+    /// Excerpt or summary of the content
+    pub excerpt: String,
 }

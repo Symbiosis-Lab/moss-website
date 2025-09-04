@@ -3,7 +3,7 @@
 //! Handles creation, configuration, and lifecycle of preview windows
 //! with proper security settings and IPC setup.
 
-use tauri::{AppHandle, Manager, WebviewWindowBuilder, WebviewUrl};
+use tauri::{AppHandle, Manager, TitleBarStyle, WebviewWindowBuilder, WebviewUrl};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use crate::preview::PreviewState;
@@ -50,7 +50,6 @@ impl PreviewWindowManager {
 pub struct PreviewWindowConfig {
     pub width: f64,
     pub height: f64,
-    pub title: String,
     pub resizable: bool,
     pub always_on_top: bool,
 }
@@ -60,7 +59,6 @@ impl Default for PreviewWindowConfig {
         Self {
             width: 1200.0,
             height: 800.0,
-            title: "moss Preview".to_string(),
             resizable: true,
             always_on_top: false,
         }
@@ -76,45 +74,25 @@ pub fn create_preview_window(
     let config = config.unwrap_or_default();
     let window_id = format!("preview_{}", state.id);
     
-    // Build the URL for the preview HTML page
-    let preview_html_url = format!("preview.html?preview_id={}", state.id);
-    
-    let window_url = WebviewUrl::App(preview_html_url.into());
+    // Load the preview URL directly
+    let window_url = WebviewUrl::External(state.url.parse()
+        .map_err(|e| format!("Invalid preview URL: {}", e))?);
 
-    let window = WebviewWindowBuilder::new(app, &window_id, window_url)
-        .title(&config.title)
+    let mut window_builder = WebviewWindowBuilder::new(app, &window_id, window_url)
+        .decorations(true)
+        .title("")
         .inner_size(config.width, config.height)
         .resizable(config.resizable)
-        .always_on_top(config.always_on_top)
+        .always_on_top(config.always_on_top);
+    
+    #[cfg(target_os = "macos")]
+    {
+        window_builder = window_builder.title_bar_style(TitleBarStyle::Visible);
+    }
+    
+    let _window = window_builder
         .build()
         .map_err(|e| format!("Failed to create preview window: {}", e))?;
-
-    // Configure window after creation
-    window.eval(&format!(r#"
-        // Store preview ID for IPC communication
-        window.PREVIEW_ID = '{}';
-        
-        // Configure iframe security when DOM loads
-        document.addEventListener('DOMContentLoaded', function() {{
-            const iframe = document.getElementById('preview-iframe');
-            if (iframe) {{
-                // Set sandbox attributes for security
-                iframe.setAttribute('sandbox', 'allow-same-origin allow-scripts allow-forms allow-popups');
-                
-                // Set additional security headers via JavaScript
-                iframe.addEventListener('load', function() {{
-                    try {{
-                        // Note: We can't directly set CSP on iframe content from parent
-                        // The local preview server should handle CSP headers
-                        console.log('Preview iframe loaded successfully');
-                    }} catch (e) {{
-                        console.log('Preview iframe loaded (cross-origin restrictions apply)');
-                    }}
-                }});
-            }}
-        }});
-    "#, state.id))
-    .map_err(|e| format!("Failed to configure window: {}", e))?;
 
     Ok(window_id)
 }
@@ -131,30 +109,6 @@ pub fn close_preview_window(app: &AppHandle, preview_id: &str) -> Result<(), Str
     }
 }
 
-/// Update preview window with new URL
-pub fn refresh_preview_window(
-    app: &AppHandle,
-    preview_id: &str,
-    new_url: &str,
-) -> Result<(), String> {
-    let window_id = format!("preview_{}", preview_id);
-    
-    if let Some(window) = app.get_webview_window(&window_id) {
-        // Update the iframe source via JavaScript
-        let script = format!(r#"
-            const iframe = document.getElementById('preview-iframe');
-            if (iframe) {{
-                iframe.src = '{}';
-            }}
-        "#, new_url);
-        
-        window.eval(&script)
-            .map_err(|e| format!("Failed to refresh preview: {}", e))?;
-        Ok(())
-    } else {
-        Err(format!("Preview window {} not found", preview_id))
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -237,7 +191,6 @@ mod tests {
         
         assert_eq!(config.width, 1200.0);
         assert_eq!(config.height, 800.0);
-        assert_eq!(config.title, "moss Preview");
         assert!(config.resizable);
         assert!(!config.always_on_top);
     }
