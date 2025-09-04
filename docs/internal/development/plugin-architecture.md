@@ -5,12 +5,28 @@
 ## Philosophy
 
 moss achieves unlimited extensibility through a minimal core + plugin system. The core handles only:
+
 - Content analysis and folder structure detection
 - Plugin discovery, loading, and coordination
 - File system abstraction and virtual structure mapping
 - Local preview server and deployment orchestration
 
 Everything else—SSGs, themes, publishers, analytics—lives in plugins. This ensures moss stays lightweight (~5MB) while accessing the entire static site ecosystem.
+
+## Cognitive Load Considerations
+
+**Deep Plugin Principle**: Each plugin provides rich functionality through a simple interface. Users interact with minimal configuration while plugins handle complexity internally.
+
+**Single Responsibility**: Each plugin does exactly one thing well:
+
+- SSG plugins only handle static site generation
+- Theme plugins only manage visual presentation
+- Publisher plugins only handle deployment
+- No plugin overlap or shared concerns
+
+**Self-Contained Architecture**: Plugins are independent units without inheritance chains or complex dependencies. A new developer should understand any plugin in ~10 minutes.
+
+**Clear Boundaries**: Plugin interfaces are explicit contracts. No hidden coupling or shared state between plugins. Framework-agnostic core logic enables easy testing and replacement.
 
 ## Plugin Interface
 
@@ -22,13 +38,13 @@ pub trait Plugin: Send + Sync {
     fn manifest(&self) -> &PluginManifest;
     fn name(&self) -> &str;
     fn version(&self) -> &str;
-    
+
     // Capability detection
     fn can_handle(&self, request: &PluginRequest) -> bool;
-    
+
     // Execution
     fn execute(&self, request: PluginRequest) -> Result<PluginResponse>;
-    
+
     // Lifecycle
     fn initialize(&mut self) -> Result<()>;
     fn cleanup(&mut self) -> Result<()>;
@@ -38,7 +54,9 @@ pub trait Plugin: Send + Sync {
 ### Plugin Types
 
 #### SSG Plugins
+
 Transform content using static site generators:
+
 ```rust
 pub trait SsgPlugin: Plugin {
     fn required_structure(&self) -> FolderMapping;
@@ -49,7 +67,9 @@ pub trait SsgPlugin: Plugin {
 ```
 
 #### Theme Plugins
+
 Provide visual designs and layouts:
+
 ```rust
 pub trait ThemePlugin: Plugin {
     fn compatible_ssgs(&self) -> Vec<String>;
@@ -59,7 +79,9 @@ pub trait ThemePlugin: Plugin {
 ```
 
 #### Publisher Plugins
+
 Deploy sites to hosting platforms:
+
 ```rust
 pub trait PublisherPlugin: Plugin {
     fn supported_platforms(&self) -> Vec<String>;
@@ -73,6 +95,7 @@ pub trait PublisherPlugin: Plugin {
 ### Protocol: JSON-RPC over Subprocess
 
 Plugins run as separate processes communicating via JSON-RPC. This provides:
+
 - **Language agnostic**: Plugins can be written in any language
 - **Process isolation**: Plugin crashes don't affect moss core
 - **Security**: Sandboxed execution environment
@@ -164,20 +187,20 @@ impl PluginManager {
     pub fn load_all_plugins(&mut self) -> Result<()> {
         // 1. Discover plugin manifests
         let manifests = self.discover_plugins()?;
-        
+
         // 2. Validate compatibility
         let compatible = self.filter_compatible(manifests)?;
-        
+
         // 3. Load in dependency order
         let ordered = self.resolve_dependencies(compatible)?;
-        
+
         // 4. Initialize plugins
         for manifest in ordered {
             let plugin = self.load_plugin(manifest)?;
             plugin.initialize()?;
             self.loaded_plugins.insert(plugin.name().to_string(), plugin);
         }
-        
+
         Ok(())
     }
 }
@@ -199,13 +222,14 @@ impl SsgPlugin for MinimalSsgPlugin {
     fn build_site(&self, config: &BuildConfig) -> Result<SiteResult> {
         // Ultra-lightweight Rust implementation
         // - Parse markdown with pulldown-cmark
-        // - Apply single beautiful template  
+        // - Apply single beautiful template
         // - Generate site in <1 second
     }
 }
 ```
 
 **Characteristics**:
+
 - ~200 lines of Rust code
 - Single template with moss green branding
 - No external dependencies
@@ -231,7 +255,7 @@ impl SsgPlugin for JekyllPlugin {
             .env("GEM_HOME", &self.gem_home)
             .status()?;
     }
-    
+
     fn build_site(&self, config: &BuildConfig) -> Result<SiteResult> {
         // 1. Create virtual Jekyll structure in .moss/build/
         // 2. Map user folders to Jekyll conventions
@@ -257,7 +281,7 @@ impl SsgPlugin for HugoPlugin {
         // Cache in ~/.moss/cache/hugo/
         self.download_hugo_binary()?;
     }
-    
+
     fn build_site(&self, config: &BuildConfig) -> Result<SiteResult> {
         // Hugo-specific folder adaptation and build
     }
@@ -295,11 +319,13 @@ subprocess = ["ruby", "node", "python"]
 ### Creating a Plugin
 
 1. **Initialize plugin structure**:
+
 ```bash
 moss plugin init my-plugin --type=ssg
 ```
 
 2. **Implement plugin trait**:
+
 ```rust
 // src/lib.rs
 use moss_plugin_api::{Plugin, SsgPlugin, PluginManifest};
@@ -313,6 +339,7 @@ impl Plugin for MyPlugin {
 ```
 
 3. **Create manifest**:
+
 ```toml
 # plugin.toml
 [plugin]
@@ -322,6 +349,7 @@ type = "ssg"
 ```
 
 4. **Build and test**:
+
 ```bash
 moss plugin build
 moss plugin test
@@ -330,6 +358,7 @@ moss plugin test
 ### Plugin API Crate
 
 The `moss-plugin-api` crate provides:
+
 - Core traits and types
 - JSON-RPC helpers
 - Common utilities
@@ -347,6 +376,7 @@ serde = { version = "1.0", features = ["derive"] }
 ### Local Registry
 
 Installed plugins stored in:
+
 ```
 ~/.moss/
 ├── plugins/
@@ -365,6 +395,7 @@ Installed plugins stored in:
 ### Future: Remote Registry
 
 Phase 2 will add a remote plugin marketplace:
+
 - Plugin discovery and installation
 - Automatic updates
 - Community ratings and reviews
@@ -378,11 +409,11 @@ Phase 2 will add a remote plugin marketplace:
 pub fn compile_folder_with_options(folder_path: String, auto_serve: bool) -> Result<String, String> {
     // 1. Analyze folder structure (core)
     let project = analyze_folder_structure(&folder_path)?;
-    
+
     // 2. Select appropriate SSG plugin
     let plugin_manager = PluginManager::instance();
     let ssg_plugin = plugin_manager.select_ssg_plugin(&project)?;
-    
+
     // 3. Execute plugin
     let request = PluginRequest::BuildSite {
         source_path: folder_path.clone(),
@@ -390,14 +421,14 @@ pub fn compile_folder_with_options(folder_path: String, auto_serve: bool) -> Res
         project_type: project.project_type,
         theme: None, // User selection in future
     };
-    
+
     let result = ssg_plugin.execute(request)?;
-    
+
     // 4. Handle result (core)
     if auto_serve {
         start_site_server(&result.output_path)?;
     }
-    
+
     Ok(result.message)
 }
 ```
@@ -405,6 +436,7 @@ pub fn compile_folder_with_options(folder_path: String, auto_serve: bool) -> Res
 ### Backward Compatibility
 
 During transition, current embedded SSG logic becomes the MinimalSsgPlugin:
+
 - Existing functionality preserved
 - No breaking changes for users
 - Plugin system adds capabilities without changing core UX
@@ -432,21 +464,25 @@ During transition, current embedded SSG logic becomes the MinimalSsgPlugin:
 ## Migration Path
 
 ### Phase 1: Infrastructure (Current)
+
 - Implement plugin loading system
 - Extract minimal SSG as default plugin
 - Create plugin API crate
 
 ### Phase 2: Core Plugins
+
 - Port Jekyll/Hugo logic to plugins
 - Add theme plugin system
 - Implement publisher plugins
 
 ### Phase 3: Ecosystem
+
 - Remote plugin registry
 - Third-party plugin support
 - Plugin development tools
 
 ### Phase 4: Advanced Features
+
 - WASM plugins for performance
 - Plugin composition and workflows
 - Advanced security model
@@ -454,20 +490,23 @@ During transition, current embedded SSG logic becomes the MinimalSsgPlugin:
 ## Success Metrics
 
 ### Developer Experience
+
 - Time to create new plugin: <30 minutes
 - Plugin API documentation completeness
 - Community plugin contributions
 
 ### Performance
+
 - Plugin loading time: <100ms
 - Communication overhead: <5% of total build time
 - Memory usage per plugin: <50MB baseline
 
 ### Ecosystem Health
+
 - Number of available plugins
 - Plugin update frequency
 - User adoption of third-party plugins
 
 ---
 
-*The plugin architecture transforms moss from a static site generator into an orchestration platform for the entire static site ecosystem.*
+_The plugin architecture transforms moss from a static site generator into an orchestration platform for the entire static site ecosystem._
