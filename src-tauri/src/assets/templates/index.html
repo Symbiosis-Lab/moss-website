@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{title}</title>
+    <link rel="stylesheet" href="{css_path}">
+</head>
+<body>
+    <header>
+        <nav class="main-nav container">
+            <div class="nav-content">
+                {navigation}
+            </div>
+        </nav>
+    </header>
+    <div class="page-wrapper">
+        <div class="container">
+            <aside class="latest-sidebar">
+                <h3>Latest</h3>
+                {latest_list}
+            </aside>
+            <div class="main-content">
+                <article>
+                    {homepage_content}
+                </article>
+                {topics_section}
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Dark mode toggle functionality
+        function toggleTheme() {
+            const html = document.documentElement;
+            const currentTheme = html.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+        }
+        
+        // Initialize theme on page load
+        (function() {
+            const savedTheme = localStorage.getItem('theme');
+            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            const initialTheme = savedTheme || (prefersDark ? 'dark' : 'light');
+            
+            document.documentElement.setAttribute('data-theme', initialTheme);
+        })();
+    </script>
+</body>
+</html>

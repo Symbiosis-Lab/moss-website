@@ -16,7 +16,7 @@ When asked to document an idea:
 
    - **Function / feature-specific concepts** → code comments
    - **Today's learning** → `docs/public/journal`, with today's date as file name
-   - **Project-specific plans** → `docs/internal/development/implementation.md`
+   - **Project-wide learnings** → `docs/`
    - **General good practices** → `.claude/CLAUDE.md`
 
 2. **Read the target file** to understand existing structure and style
@@ -284,17 +284,17 @@ When multiple valid approaches exist, choose based on:
 
 - Don't work around system limitations with UI band-aids
 - Address root causes at the appropriate system level
-- Example: Fix tray icon priority detection, don't redesign icons or add warnings
 
 **When Stuck, Question the Approach:**
 
 - If you try 3 different implementations of the same concept, the concept itself may be wrong
 - Step back and ask: "Are we solving the right problem?"
 - Sometimes the solution is to remove complexity, not add it
+- Repeated similar feedback indicates fundamental misunderstanding of requirements. Stop implementing, start researching established patterns
 
 ### API Design Philosophy
 
-**"Simple to Complex, Never Reverse":**
+**"Simple to Complex":**
 
 - Start with minimal viable surface area - easier to add than remove
 - Only add complexity when proven necessary through actual usage
@@ -345,3 +345,38 @@ When multiple valid approaches exist, choose based on:
 - Learn from existing implementations
 - Stop after 3 failed attempts and reassess
 - Question whether you're solving the right problem when repeatedly stuck
+
+## Cognitive Load Management
+
+### Core Principle: Minimize Mental Overhead
+
+**Working Memory Constraint**: Humans can hold ~4 "chunks" of information simultaneously. Design for this limit.
+
+**Deep Modules > Shallow Modules**
+
+- Create simple interfaces hiding complex implementation
+- One command that does many things internally > many commands for simple tasks
+- Rich functionality through minimal configuration
+
+## UI Design Principles
+
+### Navigation and Layout Standards
+
+**8-Point Grid System**: Use multiples of 8px for spacing (8px, 16px, 24px, 32px)
+
+- Navigation padding-bottom: 16px (standard for adequate touch targets and visual breathing room)
+- Aligns with iOS and Material Design systems
+- Creates consistent vertical rhythm
+
+**Golden Ratio for Content Layouts**: 1.618 ratio for sidebar/content proportions
+
+- Content area should be 1.618x wider than sidebar for optimal visual balance
+- Example: 280px sidebar : 1fr content : 120px minimal column
+- Based on classical design principles and unconscious user familiarity
+
+**Mobile-First Responsive Design**
+
+- Full-width content adaptation on mobile (width: 100%)
+- Consistent container padding across all screen sizes
+- Sidebar reordering: content first, navigation second on mobile
+- Alignment principle: all elements should share the same left edge on mobile

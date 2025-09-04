@@ -19,6 +19,73 @@
 
 This creates moss's signature: **rectangular sanctuaries for content, circular satellites for action**.
 
+## Cognitive Load in Generated Sites
+
+**Mental Model Alignment**: Site structure matches users' existing expectations. Navigation follows familiar web patterns without requiring learning new interaction models.
+
+**Flat Over Deep**: Avoid complex hierarchical navigation. Information architecture prioritizes discoverability over organizational perfection.
+
+**Progressive Disclosure**: Essential features visible immediately, advanced options discoverable when needed. Users shouldn't think about site mechanics to access content.
+
+**Predictable Layouts**: Consistent patterns reduce mental mapping overhead. Every page type follows established visual logic users can internalize once.
+
+## CSS Architecture Patterns
+
+### Container Pattern Implementation
+**Universal Container Class**: Single responsibility for width, centering, and padding across all layout sections.
+
+```css
+.container {
+    max-width: var(--moss-site-max-width);
+    margin: 0 auto;
+    padding: 0 var(--moss-container-padding);
+}
+```
+
+**Class Composition Over Complexity**: Combine classes for specific needs rather than creating complex calculations.
+
+```html
+<!-- Compose behaviors -->
+<nav class="main-nav container">
+<main class="content-area container">
+
+<!-- Not complex single-purpose classes -->
+<nav class="nav-with-calculated-width-and-padding">
+```
+
+### Separation of Layout Concerns
+- **Container**: Width, centering, padding
+- **Inner Elements**: Visual styling (borders, grids)
+- **Component Classes**: Component-specific behavior
+
+**Borders Inside Containers**: Visual elements like borders belong on inner elements that don't have padding, not on containers that need spacing.
+
+```css
+/* Correct */
+.nav-container { /* width + padding */ }
+.nav-content { border-bottom: 1px solid; /* visual styling */ }
+
+/* Wrong */  
+.nav-container { /* width + padding + border = width conflicts */ }
+```
+
+### Pattern Recognition for CSS Issues
+**Symptom**: Alignment issues persist through 5+ different fixes  
+**Diagnosis**: Architecture problem, not implementation problem  
+**Solution**: Step back and research industry patterns
+
+**Complex Calculations Signal Wrong Abstractions**:
+```css
+/* Warning sign */
+max-width: calc(var(--width) + 2 * var(--padding) - var(--gap));
+
+/* Better abstraction */
+.container { max-width: var(--width); }
+.grid { gap: var(--gap); }
+```
+
+**Typography as Wayfinding**: Clear hierarchy guides attention without conscious effort. Readers focus on content, not figuring out page structure.
+
 ### Color Philosophy
 
 **Content First**
