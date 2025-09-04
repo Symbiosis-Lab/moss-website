@@ -124,7 +124,7 @@ When asking for manual testing:
 
 ### 1. Planning & Staging
 
-Break complex work into 3-5 stages. Document in `docs/developer/implementation-plan.md`:
+Break complex work into 3-5 stages. Document in `docs/internal/development/implementation.md`:
 
 ```markdown
 ## Stage N: [Name]
@@ -291,6 +291,14 @@ When multiple valid approaches exist, choose based on:
 - Step back and ask: "Are we solving the right problem?"
 - Sometimes the solution is to remove complexity, not add it
 - Repeated similar feedback indicates fundamental misunderstanding of requirements. Stop implementing, start researching established patterns
+
+**Design Philosophy Patterns:**
+
+- **Orchestration over Implementation**: Don't reimplement what works well - build layers that enable existing tools
+- **Documentation-Driven Design**: Writing about problems reveals solutions; document insights immediately as they influence future decisions
+- **Dual-Path Design**: Optimize for common cases, support edge cases separately - different constraints don't require compromised experiences
+- **Progressive Enhancement**: Start minimal but complete, enable gradual complexity adoption - users shouldn't pay for unused features
+- **Trade-offs Documentation**: For significant decisions, always record alternatives considered, rationale, gains/sacrifices, and future implications
 
 ### API Design Philosophy
 
