@@ -12,6 +12,18 @@ use tower_http::services::ServeDir;
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
 use tauri::Manager;
+use serde::{Deserialize, Serialize};
+
+/// Frontmatter structure for parsing YAML metadata from markdown files
+#[derive(Debug, Deserialize, Serialize, Default)]
+struct FrontMatter {
+    /// Optional title override from frontmatter
+    title: Option<String>,
+    /// Optional publication date
+    date: Option<String>,
+    /// Topics or tags for categorization
+    topics: Option<Vec<String>>,
+}
 
 /// Recursively copies a directory and all its contents
 fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<(), String> {
@@ -928,11 +940,19 @@ fn process_markdown_file(file_path: &str, content: &str) -> Result<ParsedDocumen
         file_path.replace(".md", ".html").replace(".markdown", ".html")
     };
     
-    // Extract date from frontmatter (simplified for now)
-    let date: Option<String> = None;
+    // Parse frontmatter if present
+    let frontmatter: FrontMatter = if let Some(ref matter_data) = result.data {
+        // Try to deserialize directly from the Pod
+        matter_data.deserialize().unwrap_or_default()
+    } else {
+        FrontMatter::default()
+    };
     
-    // Extract topics/categories from frontmatter (simplified for now)
-    let topics: Vec<String> = Vec::new();
+    // Extract date from frontmatter
+    let date = frontmatter.date;
+    
+    // Extract topics/categories from frontmatter
+    let topics = frontmatter.topics.unwrap_or_default();
     
     // Calculate reading time (200 words per minute)
     let word_count = result.content.split_whitespace().count();
@@ -1395,6 +1415,16 @@ fn format_date(date_str: &str) -> String {
 /// - CSS custom properties for maintainability
 /// - Dark mode support with consistent color relationships
 /// - Mobile-responsive design with appropriate font scaling
+/// 
+/// IMPORTANT: This CSS is embedded at compile time using include_str!
+/// 
+/// This embedded CSS is used for generating static sites, not for preview windows.
+/// Preview windows load from the development server at localhost:8080, which serves
+/// fresh CSS files from disk.
+/// 
+/// The embedded CSS ensures consistent styling in generated static sites across
+/// different environments. For reliable rebuilds when CSS changes, see build.rs 
+/// which uses rerun-if-changed to track asset dependencies.
 const DEFAULT_CSS: &str = include_str!("../assets/default.css");
 const PAGE_TEMPLATE: &str = include_str!("../assets/templates/index.html");
 const INDEX_TEMPLATE: &str = include_str!("../assets/templates/index.html");

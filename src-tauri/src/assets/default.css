@@ -13,6 +13,16 @@
     --moss-border-light: #e6e2db;
     --moss-border-medium: #d1cdc4;
     
+    /* Code Block Colors */
+    --moss-code-background: #f8f6f3;
+    --moss-code-border: #e0ddd6;
+    
+    /* Code Block Accent Colors - Warm Earth Tones */
+    --moss-code-accent-primary: #2d5a2d;    /* moss green - systems/primary */
+    --moss-code-accent-secondary: #5d5853;  /* warm gray - web languages */
+    --moss-code-accent-tertiary: #8a8580;   /* muted brown - scripting */
+    --moss-code-accent-quaternary: #6b5b4f; /* deeper brown - config/data */
+    
     /* Typography Scale */
     --moss-font-base: 1.125rem;     /* 18px - optimal for long-form reading */
     --moss-font-sm: 1rem;           /* 16px */
@@ -397,18 +407,66 @@ code {
 }
 
 pre {
-    background: var(--moss-background-alt);
-    padding: var(--moss-space-lg);
+    background: var(--moss-code-background);
+    border: 1px solid var(--moss-code-border);
     border-radius: 6px;
+    padding: 1.5rem;
     overflow-x: auto;
-    border: 1px solid var(--moss-border-light);
-    margin: var(--moss-space-lg) 0;
+    position: relative;
+    margin: 1.5rem 0;
+    line-height: 1.5;
+    /* Add subtle shadow for depth */
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
 pre code {
     background: none;
     padding: 0;
     font-size: 0.875rem;
+}
+
+/* Language-specific accent borders - Warm Earth Tones */
+/* Systems Languages - Primary moss green */
+pre:has(code[class*="language-rust"]),
+pre:has(code[class*="language-c"]),
+pre:has(code[class*="language-cpp"]),
+pre:has(code[class*="language-c++"]),
+pre:has(code[class*="language-go"]) {
+    border-left: 3px solid var(--moss-code-accent-primary);
+}
+
+/* Web Technologies - Warm gray */
+pre:has(code[class*="language-css"]),
+pre:has(code[class*="language-scss"]),
+pre:has(code[class*="language-sass"]),
+pre:has(code[class*="language-html"]),
+pre:has(code[class*="language-xml"]),
+pre:has(code[class*="language-javascript"]),
+pre:has(code[class*="language-js"]),
+pre:has(code[class*="language-typescript"]),
+pre:has(code[class*="language-ts"]) {
+    border-left: 3px solid var(--moss-code-accent-secondary);
+}
+
+/* Scripting Languages - Muted brown */
+pre:has(code[class*="language-python"]),
+pre:has(code[class*="language-py"]),
+pre:has(code[class*="language-ruby"]),
+pre:has(code[class*="language-rb"]),
+pre:has(code[class*="language-php"]),
+pre:has(code[class*="language-bash"]),
+pre:has(code[class*="language-sh"]),
+pre:has(code[class*="language-shell"]) {
+    border-left: 3px solid var(--moss-code-accent-tertiary);
+}
+
+/* Configuration/Data Languages - Deeper brown */
+pre:has(code[class*="language-json"]),
+pre:has(code[class*="language-yaml"]),
+pre:has(code[class*="language-yml"]),
+pre:has(code[class*="language-toml"]),
+pre:has(code[class*="language-ini"]) {
+    border-left: 3px solid var(--moss-code-accent-quaternary);
 }
 
 /* Blockquotes */
@@ -625,6 +683,16 @@ hr {
     --moss-border-medium: #4a453c;
     --moss-accent: #4a7c4a;
     --moss-accent-hover: #5a8c5a;
+    
+    /* Code Block Colors - Dark Mode */
+    --moss-code-background: #1e1e1e;
+    --moss-code-border: #3a3a3a;
+    
+    /* Code Block Accent Colors - Dark Mode Variants */
+    --moss-code-accent-primary: #4a7c4a;    /* lighter moss green */
+    --moss-code-accent-secondary: #b8b5b0;  /* lighter warm gray */
+    --moss-code-accent-tertiary: #a8a19a;   /* lighter muted brown */
+    --moss-code-accent-quaternary: #9b8b7f; /* lighter deeper brown */
 }
 
 /* Auto dark mode for users without manual preference */
@@ -639,6 +707,16 @@ hr {
         --moss-border-medium: #4a453c;
         --moss-accent: #4a7c4a;
         --moss-accent-hover: #5a8c5a;
+        
+        /* Code Block Colors - Dark Mode */
+        --moss-code-background: #1e1e1e;
+        --moss-code-border: #3a3a3a;
+        
+        /* Code Block Accent Colors - Dark Mode Variants */
+        --moss-code-accent-primary: #4a7c4a;    /* lighter moss green */
+        --moss-code-accent-secondary: #b8b5b0;  /* lighter warm gray */
+        --moss-code-accent-tertiary: #a8a19a;   /* lighter muted brown */
+        --moss-code-accent-quaternary: #9b8b7f; /* lighter deeper brown */
     }
 }
 
