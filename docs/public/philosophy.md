@@ -1,3 +1,22 @@
+## Philosophy
+
+Like its namesake, moss thrives in the spaces others overlook. It doesn't compete with platforms for sunlight. It creates the foundation layer that enables an entire ecosystem.
+
+- **Invisible but essential** - You don't notice moss until it's gone
+- **Resilient** - Survives where others can't
+- **Reproductive** - Spreads through reproduction, not control
+- **Transformative** - Breaks down inorganic matter into organic matter
+- **Symbiotic** - Creates conditions for other life to flourish
+- **Patient** - Grows slowly but persistently
+
+## Principles
+
+- No database
+- No server required
+- No platform lock-in
+- No new protocols
+- Everything is a plugin
+
 # The moss Philosophy
 
 ## Core Beliefs
@@ -33,14 +52,6 @@ We use what already works: HTTP, RSS, ActivityPub, WebMentions. The web has enou
 ### Everything is a Plugin
 
 The core does one thing: transform folders to websites. Everything else - themes, syndication, analytics - is a plugin. Start simple, grow as needed.
-
-## POSSE: The Publishing Strategy
-
-**Publish (on your) Own Site, Syndicate Elsewhere**
-
-Your content lives on your domain first. Syndication to social platforms happens automatically through plugins. You get the reach of platforms without the lock-in.
-
-This isn't ideological purity. It's practical resilience. Platforms change algorithms, shut down, get acquired. Your website remains.
 
 ## Human-Computer Symbiosis
 

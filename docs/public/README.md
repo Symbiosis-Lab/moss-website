@@ -2,84 +2,31 @@
 
 > Write anywhere. Publish everywhere. Own everything.
 
-## What It Is
-
-A tiny desktop app that turns any folder into a website. Right-click, publish, done. Then syndicate to social networks and channels of your choice.
+A tiny desktop app that turns any folder into a website. Right-click, publish, done. 
 
 Your files stay on your computer. Your site lives on your domain. Your audience remains yours.
 
-## Philosophy
+## Current Capabilities
 
-Like its namesake, moss thrives in the spaces others overlook. It doesn't compete with platforms for sunlight. It creates the foundation layer that enables an entire ecosystem.
+✅ **Phase 0 (Available Now):**
+- Beautiful default theme with responsive design
+- Automatic markdown processing and site generation
+- Local preview server for immediate feedback
+- macOS Finder integration (right-click → Publish)
 
-- **Invisible but essential** - You don't notice moss until it's gone
-- **Resilient** - Survives where others can't
-- **Reproductive** - Spreads through reproduction, not control
-- **Transformative** - Breaks down inorganic matter into organic matter
-- **Symbiotic** - Creates conditions for other life to flourish
-- **Patient** - Grows slowly but persistently
-
-## Principles
-
-- No database
-- No server required
-- No platform lock-in
-- No new protocols
-- Everything is a plugin
-
-## Architecture
-
-```
-Local files → moss → Static site → Your infrastructure
-                ↓
-          Syndication → Existing platforms
-                ↓
-        Spore/Lichen → Social layer
-```
-
-**moss** - Tauri app, lives in menu bar, compiles and deploys  
-**Spore** - Optional ActivityPub/WebMention server  
-**Lichen** - JavaScript widget for comments on any static site
-
-## Theme Ecosystem
-
-moss works with themes from any static site generator:
-
-**Theme-First Journey**
-1. Browse themes from Jekyll, Hugo, Zola, Eleventy
-2. Choose the design you love
-3. moss downloads the appropriate SSG automatically
-4. Your content + chosen theme = beautiful website
+📋 **Coming in Phase 1 (Nov 2025-Jan 2026):**
+- Theme marketplace with Jekyll, Hugo, Zola themes
+- Syndication to social networks and channels
+- Plugin ecosystem for extensibility
 
 **No Learning Curve**
-- Keep your folder structure exactly as you want it
-- moss adapts your files to work with any SSG
-- No configuration files to learn
-- No build tools to install
 
-**Progressive Enhancement**
-- Start simple: moss built-in SSG (instant, zero config)
-- Need themes? Automatic SSG integration
-- Want advanced features? Full SSG ecosystem access
+- Keep your folder structure exactly as you want it
+- Start simple: Built-in generator (instant, zero config)  
+- Grow gradually: Add themes and features as needed
+- No configuration files to learn
 
 For technical details, see [Architecture](architecture.md).
-
-## Current Status
-
-**Phase 0 Complete**: Core publishing pipeline working! Folder → Beautiful HTML + localhost preview. Right-click folder → "Publish to Web" → See instant preview.
-
-Follow our progress in the [Development Journal](journal/).
-
-## Usage
-
-```bash
-# Development
-npm run tauri dev          # Launch development app
-# Click "🧪 Test Publish" to test with test-content/simple-blog/
-
-# Production (coming soon)
-# Right-click any folder → "Publish to Web" → See instant preview
-```
 
 ## What It's Not
 

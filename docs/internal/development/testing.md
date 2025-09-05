@@ -394,3 +394,207 @@ fn test_content_analysis_homepage_detection() {
 ```
 
 **The goal**: Confidence that users get the behavior they expect, regardless of how we implement it internally.
+
+## Visual Testing Strategy
+
+### The Problem
+
+Current tests validate business logic but miss visual rendering:
+- ✅ HTML files created with correct content
+- ✅ CSS path resolution at different depths  
+- ✅ Homepage detection and project classification
+- ❌ Visual appearance in preview window
+- ❌ CSS layout and responsive design
+- ❌ JavaScript functionality (theme toggle, navigation)
+
+### Four-Phase Implementation
+
+#### Phase 1: Enhanced Content Validation (Week 1)
+Extend current HTML tests with semantic structure assertions:
+
+```rust
+#[test]
+fn test_ssg_semantic_structure() {
+    let index_content = compile_test_site();
+    
+    // Visual hierarchy validation
+    assert!(index_content.contains("<h1>My Blog</h1>"));
+    assert!(index_content.contains("class=\"main-nav\""));
+    assert!(index_content.contains("<meta name=\"viewport\""));
+    
+    // Accessibility validation
+    assert!(index_content.contains("aria-label"));
+    assert!(index_content.contains("alt=\""));
+    
+    // CSS inclusion validation
+    assert!(index_content.contains("href=\"style.css\""));
+    assert!(journal_content.contains("href=\"../style.css\""));
+}
+```
+
+#### Phase 2: Local Server Screenshot Testing (Week 2-3)
+Playwright integration for localhost:8080 visual validation:
+
+```rust
+[dev-dependencies]
+playwright = "0.1"  # Version TBD
+
+#[tokio::test]
+async fn test_ssg_visual_rendering() {
+    // Start compilation and local server
+    let temp_dir = create_test_blog_structure();
+    let _server = compile_and_serve(temp_dir.to_string()).unwrap();
+    
+    // Connect Playwright to localhost:8080
+    let playwright = Playwright::new().await?;
+    let browser = playwright.chromium().launch().await?;
+    let page = browser.new_page().await?;
+    
+    // Test homepage rendering
+    page.goto("http://localhost:8080").await?;
+    page.wait_for_selector("h1").await?;
+    
+    // Visual assertions
+    let title = page.text_content("h1").await?;
+    assert_eq!(title, "My Blog");
+    
+    // Screenshot baseline comparison
+    let screenshot = page.screenshot().await?;
+    compare_with_baseline(&screenshot, "homepage.png")?;
+    
+    // Test responsive breakpoints
+    page.set_viewport_size(320, 568).await?; // iPhone SE
+    let mobile_screenshot = page.screenshot().await?;
+    compare_with_baseline(&mobile_screenshot, "homepage_mobile.png")?;
+    
+    // Test JavaScript functionality
+    page.click(".theme-toggle").await?;
+    page.wait_for_timeout(500).await?;
+    let body_bg = page.evaluate("getComputedStyle(document.body).backgroundColor").await?;
+    assert!(body_bg.contains("22, 22, 22")); // Dark theme
+}
+```
+
+#### Phase 3: Tauri Preview Window Testing (Phase 1)
+End-to-end visual testing of actual preview interface:
+
+```rust
+#[tokio::test]
+async fn test_tauri_preview_window_e2e() {
+    // Set up Tauri for WebDriver testing
+    std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--remote-debugging-port=9222");
+    
+    // Launch Tauri app in test mode
+    let app_process = launch_moss_app_for_testing().await?;
+    
+    // Connect Playwright to Tauri's webview
+    let playwright = Playwright::new().await?;
+    let browser = playwright.chromium().connect_over_cdp("http://localhost:9222").await?;
+    let contexts = browser.contexts().await?;
+    let page = contexts[0].pages().await?[0];
+    
+    // Test preview window interface
+    page.wait_for_selector("[data-testid='preview-content']").await?;
+    
+    // Test floating controls positioning
+    let publish_button = page.locator("[data-testid='publish-button']").await?;
+    assert!(publish_button.is_visible().await?);
+    
+    // Test preview iframe content
+    let preview_iframe = page.frame_locator("[data-testid='preview-iframe']").await?;
+    let site_title = preview_iframe.locator("h1").text_content().await?;
+    assert_eq!(site_title, "My Blog");
+    
+    // Screenshot full preview window UI
+    let preview_screenshot = page.screenshot().await?;
+    compare_with_baseline(&preview_screenshot, "preview_window.png")?;
+    
+    cleanup_test_app(app_process).await?;
+}
+```
+
+#### Phase 4: Cross-Platform Visual Consistency (Phase 2)
+Platform-specific visual validation:
+
+```rust
+#[cfg(target_os = "macos")]
+#[test]
+fn test_macos_native_styling() {
+    // Test macOS-specific rendering
+    // - Vibrancy effects on floating controls
+    // - SF Pro font rendering 
+    // - Native scrollbars and window decorations
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn test_windows_native_styling() {
+    // Test Windows-specific rendering
+    // - Windows 11 design language compliance
+    // - System accent color adaptation
+    // - High-DPI scaling behavior
+}
+```
+
+### Visual Baseline Management
+
+```rust
+fn compare_with_baseline(screenshot: &[u8], baseline_name: &str) -> Result<(), String> {
+    let baseline_path = format!("tests/visual_baselines/{}", baseline_name);
+    
+    if !std::path::Path::new(&baseline_path).exists() {
+        // First run - create baseline
+        std::fs::write(&baseline_path, screenshot)?;
+        println!("Created baseline: {}", baseline_name);
+        return Ok(());
+    }
+    
+    let baseline = std::fs::read(&baseline_path)?;
+    
+    // Use image comparison library (e.g., image-compare)
+    let diff_percentage = compare_images(&baseline, screenshot)?;
+    
+    if diff_percentage > 0.1 { // 0.1% threshold
+        let diff_path = format!("tests/visual_diffs/{}", baseline_name);
+        generate_diff_image(&baseline, screenshot, &diff_path)?;
+        return Err(format!("Visual diff detected: {} ({}% difference)", diff_path, diff_percentage));
+    }
+    
+    Ok(())
+}
+```
+
+### Integration with CI/CD
+
+```yml
+# .github/workflows/visual-tests.yml
+name: Visual Regression Tests
+
+on: [push, pull_request]
+
+jobs:
+  visual-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Playwright
+        run: npx playwright install chromium
+      - name: Run visual tests
+        run: cargo test test_ssg_visual_rendering
+      - name: Upload visual diffs
+        if: failure()
+        uses: actions/upload-artifact@v3
+        with:
+          name: visual-diffs
+          path: tests/visual_diffs/
+```
+
+### Key Benefits
+
+1. **Catch CSS Regressions**: Detect when styling changes break layouts
+2. **Validate User Experience**: Ensure preview window actually renders correctly
+3. **Cross-Platform Consistency**: Verify appearance across operating systems
+4. **Design System Compliance**: Enforce typography, spacing, and color standards
+5. **Accessibility Assurance**: Test semantic HTML and ARIA markup
+
+This strategy bridges the gap between "it compiles" and "it renders beautifully"—essential for moss's "beautiful defaults" philosophy.
