@@ -10,7 +10,7 @@ Documents are mostly for human, especially developers. So speak their language, 
 
 # Documentation Strategy
 
-When asked to document an idea:
+When asked to document:
 
 1. **Choose the right location** using the current file structure:
 
@@ -112,6 +112,7 @@ When asking for manual testing:
 - **Learning from existing code** - Study and plan before implementing
 - **Pragmatic over dogmatic** - Adapt to project reality
 - **Clear intent over clever code** - Be boring and obvious
+- **Design philosophy first** - Technical choices should reinforce product values, not contradict them
 
 ### Simplicity Means
 
@@ -321,20 +322,6 @@ When multiple valid approaches exist, choose based on:
 - **E2E Tests**: Complete user workflows (right-click → publish → browser opens)
 - **Boundary**: Test user-observable behavior, not implementation details
 - **Reference**: Following patterns from established macOS app testing practices
-
-### Compilation Error Patterns
-
-**Rust/System API Integration:**
-
-- macOS accessibility APIs require careful type handling (`*const __CFString` vs `&str`)
-- When in doubt, simplify to get compilation working first, then enhance
-- Complex FFI integration can be replaced with simplified heuristics for initial implementation
-
-**Development Workflow:**
-
-- Always test compilation before moving to complex logic
-- Use `cargo build` and `cargo test` as quick validation checkpoints
-- Background processes can timeout - use appropriate timeout values for lengthy compilation
 
 ## Important Reminders
 
