@@ -90,9 +90,28 @@ pub fn create_preview_window(
         window_builder = window_builder.title_bar_style(TitleBarStyle::Visible);
     }
     
-    let _window = window_builder
+    let window = window_builder
         .build()
         .map_err(|e| format!("Failed to create preview window: {}", e))?;
+
+    // Add window close event handler to restore Accessory mode
+    // When preview window closes, hide dock icon and return to menu bar only
+    let app_handle = app.clone();
+    window.on_window_event(move |event| {
+        if let tauri::WindowEvent::Destroyed = event {
+            println!("🔧 Preview window closed - restoring Accessory activation policy");
+            
+            // Restore Accessory mode to hide dock icon
+            #[cfg(target_os = "macos")]
+            {
+                if let Err(e) = app_handle.set_activation_policy(tauri::ActivationPolicy::Accessory) {
+                    eprintln!("⚠️ Failed to restore activation policy: {}", e);
+                } else {
+                    println!("🔧 Dock icon hidden - moss returned to menu bar only");
+                }
+            }
+        }
+    });
 
     Ok(window_id)
 }

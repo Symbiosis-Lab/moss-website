@@ -20,12 +20,21 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod types;
-mod commands;
+mod compile;
 mod preview;
 
-use commands::*;
-use preview::PreviewWindowManager;
+use compile::{
+    compile_folder, 
+    compile_with_directory_picker, 
+    get_system_status, 
+    install_finder_integration
+};
+
+#[cfg(test)]
+use compile::{detect_homepage_file, detect_content_folders, detect_project_type_from_content};
+use preview::{PreviewWindowManager, *};
 use tauri::Manager;
+
 
 /// Main application entry point for Tauri desktop and mobile platforms.
 /// 
@@ -45,6 +54,7 @@ use tauri::Manager;
 /// - **macOS**: Sets Accessory activation policy to prevent dock icon
 /// - **All platforms**: Creates system tray with menu items
 /// 
+
 /// Handles first launch setup including automatic Finder integration installation
 fn setup_first_launch(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     // Create app config directory if it doesn't exist  
@@ -104,7 +114,7 @@ fn handle_deep_link_url(app: &tauri::AppHandle, url: &str) {
         let path = std::path::PathBuf::from(&folder_path);
         
         // Step 1: Build the site (compile files, start local server)
-        match commands::compile_and_serve(folder_path.clone()) {
+        match compile_folder(folder_path.clone(), Some(true)) {
             Ok(result) => {
                 println!("✅ Build completed: {}", result);
                 
@@ -195,8 +205,8 @@ pub fn run() {
             };
 
             // Build system tray menu with standard items
-            let publish_i = MenuItem::with_id(app, "publish", "Compile...", true, None::<&str>)?;
-            let settings_i = MenuItem::with_id(app, "settings", "Settings...", true, None::<&str>)?;
+            let publish_i = MenuItem::with_id(app, "publish", "Publish", true, None::<&str>)?;
+            let settings_i = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
             let about_i = MenuItem::with_id(app, "about", "About moss", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
 
@@ -210,37 +220,52 @@ pub fn run() {
                 .item(&quit_i)
                 .build()?;
 
-            // Generate programmatic tray icon (16x16 RGBA)
+            // Load moss icon for tray (16x16 PNG)
             // Uses template format for automatic dark/light mode adaptation on macOS
-            let mut icon_rgba = vec![0x00; 16 * 16 * 4];
-            
-            // Draw simple circular icon using distance calculation
-            for y in 4..12 {
-                for x in 4..12 {
-                    let distance_sq = (x as i32 - 8).pow(2) + (y as i32 - 8).pow(2);
-                    if distance_sq <= 16 {
-                        let idx = (y * 16 + x) * 4;
-                        icon_rgba[idx] = 0x00;
-                        icon_rgba[idx + 1] = 0x00;
-                        icon_rgba[idx + 2] = 0x00;
-                        icon_rgba[idx + 3] = 0xFF;
+            let icon = match Image::from_path("icons/16x16.png") {
+                Ok(img) => {
+                    println!("✅ Loaded moss icon for tray from icons/16x16.png");
+                    img
+                },
+                Err(e) => {
+                    eprintln!("⚠️ Failed to load moss icon, falling back to programmatic icon: {}", e);
+                    
+                    // Fallback: Generate programmatic tray icon (16x16 RGBA)
+                    let mut icon_rgba = vec![0x00; 16 * 16 * 4];
+                    
+                    // Draw simple circular icon using distance calculation
+                    for y in 4..12 {
+                        for x in 4..12 {
+                            let distance_sq = (x as i32 - 8).pow(2) + (y as i32 - 8).pow(2);
+                            if distance_sq <= 16 {
+                                let idx = (y * 16 + x) * 4;
+                                icon_rgba[idx] = 0x00;
+                                icon_rgba[idx + 1] = 0x00;
+                                icon_rgba[idx + 2] = 0x00;
+                                icon_rgba[idx + 3] = 0xFF;
+                            }
+                        }
                     }
+                    
+                    Image::new_owned(icon_rgba, 16, 16)
                 }
-            }
-            
-            let icon = Image::new(&icon_rgba, 16, 16);
+            };
             
             let tray_result = TrayIconBuilder::with_id("main")
                 .icon(icon)
                 .icon_as_template(true)
                 .menu(&menu)
                 .on_menu_event(move |app, event| {
-                    match event.id().as_ref() {
+                    let event_id = event.id().as_ref();
+                    println!("🔧 Menu event triggered: '{}'", event_id);
+                    
+                    match event_id {
                         "publish" => {
+                            println!("🔧 Handling 'publish' menu event");
                             // Trigger directory picker and compile workflow
                             let app_handle = app.clone();
                             tauri::async_runtime::spawn(async move {
-                                match commands::compile_with_directory_picker(app_handle).await {
+                                match compile_with_directory_picker(app_handle).await {
                                     Ok(message) => {
                                         println!("✅ {}", message);
                                     },
@@ -251,11 +276,44 @@ pub fn run() {
                             });
                         }
                         "settings" => {
-                            // Show main window as settings dialog
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.set_title("moss Settings");
-                                let _ = window.show();
-                                let _ = window.set_focus();
+                            println!("🔧 Handling 'settings' menu event");
+                            // Create settings window on-demand
+                            if app.get_webview_window("main").is_none() {
+                                // Window doesn't exist, create it
+                                let window_result = tauri::WebviewWindowBuilder::new(
+                                    app,
+                                    "main",
+                                    tauri::WebviewUrl::App("index.html".into())
+                                )
+                                .title("moss Settings")
+                                .inner_size(800.0, 600.0)
+                                .resizable(true)
+                                .build();
+                                
+                                match window_result {
+                                    Ok(window) => {
+                                        let window_clone = window.clone();
+                                        // Set up window event handler for close behavior
+                                        window.on_window_event(move |event| {
+                                            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                                                // Override default close behavior - hide instead of quit
+                                                api.prevent_close();
+                                                let _ = window_clone.hide();
+                                            }
+                                        });
+                                        let _ = window.show();
+                                        let _ = window.set_focus();
+                                    }
+                                    Err(e) => {
+                                        eprintln!("❌ Failed to create settings window: {}", e);
+                                    }
+                                }
+                            } else {
+                                // Window exists, just show it
+                                if let Some(window) = app.get_webview_window("main") {
+                                    let _ = window.show();
+                                    let _ = window.set_focus();
+                                }
                             }
                         }
                         "about" => {
@@ -287,25 +345,53 @@ pub fn run() {
                 }
             }
 
-            // Configure window behavior: hide instead of quit on close
-            // This keeps the app running in the system tray
-            if let Some(window) = app.get_webview_window("main") {
-                let window_clone = window.clone();
-                window.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        // Override default close behavior
-                        api.prevent_close();
-                        // Hide window but keep app running in tray
-                        let _ = window_clone.hide();
-                    }
-                });
+            // Note: Main window is not created automatically (create: false in tauri.conf.json)
+            // Window will be created on-demand when settings menu is clicked
+
+            // Create persistent invisible window to serve as dialog parent
+            // This keeps the app alive in Accessory mode and provides proper dialog positioning
+            // 
+            // References:
+            // - https://github.com/tauri-apps/plugins-workspace/issues/1306 (invisible window for dialog centering)
+            // - https://github.com/tauri-apps/plugins-workspace/issues/2153 (dialog positioning bug on macOS)
+            // - Used alongside activation policy switching for belt-and-suspenders approach
+            // - Ensures dialog centering even if activation policy changes are delayed or fail
+            // - Testing confirmed: activation policy switching alone is insufficient for proper dialog positioning
+            let dialog_anchor = tauri::WebviewWindowBuilder::new(
+                app,
+                "dialog_anchor",
+                tauri::WebviewUrl::App("about:blank".into())
+            )
+            .inner_size(1.0, 1.0)
+            .visible(false)
+            .skip_taskbar(true)
+            .decorations(false)
+            .build()
+            .map_err(|e| {
+                eprintln!("Failed to create dialog anchor window: {}", e);
+                e
+            })?;
+
+            // Position in upper center for optimal dialog placement
+            if let Ok(monitor) = dialog_anchor.primary_monitor() {
+                if let Some(monitor) = monitor {
+                    let size = monitor.size();
+                    let scale_factor = monitor.scale_factor();
+                    
+                    let logical_width = size.width as f64 / scale_factor;
+                    let logical_height = size.height as f64 / scale_factor;
+                    let x = logical_width / 2.0;
+                    let y = logical_height * 0.15; // Upper portion for good dialog placement
+                    
+                    let _ = dialog_anchor.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+                }
             }
 
             Ok(())
         })
         .manage(PreviewWindowManager::new())
         .invoke_handler(tauri::generate_handler![
-            compile_and_serve,
+            compile_folder,
             install_finder_integration, 
             get_system_status,
             open_preview_window,
@@ -415,26 +501,11 @@ fn run_cli_compile(folder_path: &str, serve: bool, watch: bool) {
     println!("🏗️  Compiling website from: {}", folder_path);
     
     // Build the site using the compile_folder function
-    match commands::compile_folder(folder_path.to_string()) {
+    match compile_folder(folder_path.to_string(), Some(serve)) {
         Ok(result) => {
             println!("✅ {}", result);
             
             if serve || watch {
-                if serve {
-                    // Extract the output path from result to start server
-                    let site_path = Path::new(folder_path).join(".moss/site");
-                    if site_path.exists() {
-                        // Start the server (this function exists in commands module)
-                        if let Err(e) = commands::start_site_server_cli(&site_path.to_string_lossy().to_string()) {
-                            eprintln!("❌ Failed to start server: {}", e);
-                            std::process::exit(1);
-                        }
-                        println!("🚀 Site is now serving at http://localhost:8080");
-                    } else {
-                        eprintln!("❌ Site directory not found at: {}", site_path.display());
-                        std::process::exit(1);
-                    }
-                }
                 if watch {
                     println!("👀 Watching for file changes...");
                 }
@@ -517,7 +588,7 @@ mod tests {
     fn test_content_analysis_homepage_detection() {
         // Behavior: App should correctly identify homepage files by priority
         use crate::types::FileInfo;
-        use crate::commands::*;
+        use crate::compile::*;
         
         // Test priority order: index.md > index.pages > index.docx > README.md
         let files = vec![
@@ -543,7 +614,7 @@ mod tests {
     fn test_content_analysis_folder_detection() {
         // Behavior: App should identify folders containing content suitable for compilation
         use crate::types::FileInfo;
-        use crate::commands::*;
+        use crate::compile::*;
         
         let files = vec![
             FileInfo { path: "index.md".to_string(), file_type: "md".to_string(), size: 100, modified: None },
@@ -564,7 +635,7 @@ mod tests {
     fn test_content_analysis_project_classification() {
         // Behavior: App should classify project structure for optimal site generation
         use crate::types::{FileInfo, ProjectType};
-        use crate::commands::*;
+        use crate::compile::*;
         
         // Test 1: Homepage with collections (has content folders)
         let files_with_collections = vec![

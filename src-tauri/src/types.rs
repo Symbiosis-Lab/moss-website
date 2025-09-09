@@ -2,20 +2,6 @@
 
 use serde::{Deserialize, Serialize};
 
-/// System tray icon visibility status on different platforms.
-/// 
-/// Provides detailed information about whether the tray icon is actually
-/// visible to the user, accounting for platform-specific behaviors like
-/// macOS hiding icons when the menu bar is too crowded.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub enum TrayVisibilityStatus {
-    /// Tray icon creation failed or was not attempted
-    NotAdded,
-    /// Tray icon exists but is hidden by the system (e.g., macOS space constraints)
-    AddedButHidden,
-    /// Tray icon is visible and accessible to the user
-    Visible,
-}
 
 /// System diagnostic information for debugging and user support.
 /// 
@@ -26,8 +12,6 @@ pub enum TrayVisibilityStatus {
 pub struct SystemInfo {
     /// Operating system identifier (e.g., "macos", "windows", "linux")
     pub os: String,
-    /// Current tray icon visibility status
-    pub tray_status: TrayVisibilityStatus,
     /// Whether Finder integration is installed (macOS only)
     pub finder_integration: bool,
     /// Application version string from Cargo.toml
@@ -147,6 +131,7 @@ pub struct ParsedDocument {
     /// Document title from frontmatter or filename
     pub title: String,
     /// Raw markdown content without frontmatter
+    #[allow(dead_code)]
     pub content: String,
     /// HTML content generated from markdown
     pub html_content: String,
@@ -159,5 +144,6 @@ pub struct ParsedDocument {
     /// Estimated reading time in minutes
     pub reading_time: u32,
     /// Excerpt or summary of the content
+    #[allow(dead_code)]
     pub excerpt: String,
 }

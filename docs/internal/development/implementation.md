@@ -218,9 +218,64 @@ Share publication across different channels
 ### Immediate Next Steps (Phase 0 Polish)
 
 **Priority Order**:
-1. **Fix preview window HTML serving in dev mode** - Critical for development workflow
-2. **Update window URLs for dev vs production environments** - Environment detection
-3. **Clean up LaunchServices duplicate registrations** - Deep link reliability
+1. **Fix dialog positioning and full-screen issues** - Critical for user experience
+2. **Fix preview window HTML serving in dev mode** - Critical for development workflow
+3. **Update window URLs for dev vs production environments** - Environment detection
+4. **Clean up LaunchServices duplicate registrations** - Deep link reliability
+
+#### Dialog Positioning Fix - Implementation Plan
+
+**Issue**: File dialogs appear incorrectly positioned and crash app on cancel (discovered 2025-01-09)
+
+**Root Cause**: 
+- `ActivationPolicy::Accessory` causes dialogs to position relative to menu bar icon
+- Canceling dialog returns error, causing app crash in dev mode
+- Full-screen apps prevent dialog visibility due to window layering
+
+**Solution**: Dynamic activation policy switching (industry standard pattern)
+
+**Implementation Steps**:
+
+1. **Modify `compile_with_directory_picker()` in `src-tauri/src/commands/compile.rs`**:
+   ```rust
+   // Before dialog
+   app.set_activation_policy(tauri::ActivationPolicy::Regular);
+   tokio::time::sleep(Duration::from_millis(100)).await;
+   
+   // Show dialog (now properly centered, can handle full-screen)
+   let folder_path = app.dialog().file()...
+   
+   // In all completion paths (success, error, cancel)
+   app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+   ```
+
+2. **Handle cancellation as success case, not error**:
+   ```rust
+   match folder_path {
+       Some(path) => { /* proceed with compilation */ },
+       None => {
+           // User canceled - this is normal, not an error
+           app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+           Ok("User canceled folder selection".to_string())
+       }
+   }
+   ```
+
+3. **Add proper async/await support**:
+   - Change function signature to `async fn`
+   - Update Tauri command registration for async
+
+4. **Test all scenarios**:
+   - Dialog appears centered ✓
+   - Works from full-screen apps ✓
+   - Cancel doesn't crash app ✓
+   - Dock icon appears/disappears correctly ✓
+
+**Files to modify**:
+- `src-tauri/src/commands/compile.rs` (main implementation)
+- `src-tauri/src/main.rs` (async command registration)
+
+**Estimated time**: 1 development session
 
 **Estimated Completion**: 2-3 development sessions
 
@@ -591,74 +646,15 @@ pub fn compile_folder_with_options(folder_path: String, auto_serve: bool) -> Res
 - Universal social features via Lichen plugin
 - moss as orchestration platform for entire static site ecosystem
 
-## Platform Integration Details
+## Platform Integration Notes
 
-### Deep Link Development Limitation
+Platform-specific implementation details and technical references have been moved to code comments where they're directly applicable. Key integration points:
 
-**macOS Issue**: Protocol registration requires app installation, not available in `npm run tauri dev`
+- **Deep Link Registration**: References moved to deep link setup in `main.rs`
+- **macOS Services Integration**: References moved to Finder integration code
+- **LaunchServices Management**: Debugging commands moved to relevant setup functions
 
-**Production Reality**: Deep links work fine after build/install - development limitation only
-
-**Workaround**: Direct command testing via UI buttons during development
-
-**Reference**: [Tauri Deep Link Plugin Documentation](https://v2.tauri.app/plugin/deep-link/)
-
-### macOS Services Integration
-
-#### Bundle File Copying vs Programmatic Creation
-
-**Preferred Approach**: Copy pre-built `.workflow` bundles from app resources to `~/Library/Services/`
-
-**Why This Works**:
-- More reliable than AppleScript automation
-- Version controlled workflow files
-- Cross-macOS version compatibility
-- No runtime XML generation errors
-
-**Resource Path Discovery**: Tauri bundles resources at `Contents/Resources/_up_/resources/` in production, not the expected `Contents/Resources/`
-
-**Reference**: [Apple Automator Documentation](https://developer.apple.com/library/archive/documentation/LanguagesUtilities/Conceptual/MacAutomationScriptingGuide/MakeaSystem-WideService.html)
-
-#### Services Menu Placement
-
-**Key Finding**: Remove `NSIconName` property from Info.plist to show service in main context menu
-
-**Behavior**:
-- **Without NSIconName**: Service appears in main context menu (1 click)
-- **With NSIconName**: Service appears in "Quick Actions" submenu (2 clicks)
-
-**Command to Remove**: 
-```bash
-plutil -remove NSServices.0.NSIconName /path/to/workflow/Contents/Info.plist
-```
-
-**Impact**: One property removal saves one click in user workflow
-
-#### First Launch Integration
-
-**Pattern**: Automatic installation on first launch using marker files
-
-**Implementation**:
-- **Marker Location**: `~/Library/Application Support/com.moss.publisher/finder_integration_installed`
-- **Security**: No elevated permissions required (`~/Library/Services/` is user-writable)
-- **Graceful Degradation**: App functions even if automatic installation fails
-- **User Control**: Can be manually triggered through Settings if needed
-
-#### LaunchServices Database Management
-
-**Conflict Resolution**: Multiple app registrations (debug/release/production) can create routing conflicts
-
-**Commands for Debugging**:
-```bash
-# Reset entire LaunchServices database
-lsregister -kill -r
-
-# Register specific app
-lsregister -f /Applications/moss.app
-
-# View current registrations
-lsregister -dump | grep moss
-```
+This keeps technical details close to the code where they're needed while maintaining cleaner documentation.
 
 ---
 

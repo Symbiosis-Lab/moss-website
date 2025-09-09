@@ -53,6 +53,7 @@ impl PreviewState {
     }
 
     /// Check if content can be published
+    #[allow(dead_code)]
     pub fn can_publish(&self) -> bool {
         // Can publish if not already published or if folder has been modified
         !self.is_published && self.folder_path.exists()
@@ -64,6 +65,7 @@ impl PreviewState {
     }
 
     /// Check if folder has been modified since last publish
+    #[allow(dead_code)]
     pub fn is_modified_since_publish(&self) -> Result<bool, std::io::Error> {
         if !self.is_published {
             return Ok(true);

@@ -3,9 +3,8 @@
 //! Provides the backend API for preview window operations including
 //! window creation, publishing, editing, and syndication.
 
-use crate::preview::*;
-use crate::preview::ipc::validate_syndication_target;
-use std::path::{Path, PathBuf};
+use crate::preview::{PreviewState, PreviewWindowManager, build_preview_url, create_preview_window, close_preview_window};
+use std::path::PathBuf;
 use tauri::{AppHandle, State};
 
 /// Global state for preview window management
@@ -45,68 +44,7 @@ pub fn validate_publish_request(state: &PreviewState) -> Result<(), String> {
     Ok(())
 }
 
-/// Prepare syndication data for publishing
-pub fn prepare_syndication_data(
-    _state: &PreviewState, 
-    targets: Vec<String>
-) -> Result<Vec<String>, String> {
-    // Validate syndication targets
-    let valid_targets: Vec<String> = targets
-        .into_iter()
-        .filter(|target| validate_syndication_target(target).is_ok())
-        .collect();
-    
-    if valid_targets.is_empty() {
-        return Err("No valid syndication targets provided".to_string());
-    }
-    
-    Ok(valid_targets)
-}
 
-/// Extract preview metadata from folder contents
-pub fn format_preview_metadata(folder_path: &Path) -> Result<PreviewMetadata, String> {
-    let mut metadata = PreviewMetadata {
-        title: None,
-        description: None,
-        author: None,
-        created_date: None,
-    };
-    
-    // Look for common metadata files
-    let metadata_files = ["index.md", "README.md", "about.md"];
-    
-    for filename in &metadata_files {
-        let file_path = folder_path.join(filename);
-        if file_path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&file_path) {
-                // Simple metadata extraction from first few lines
-                let lines: Vec<&str> = content.lines().take(10).collect();
-                
-                // Look for title in first heading
-                for line in &lines {
-                    if line.starts_with("# ") {
-                        metadata.title = Some(line[2..].trim().to_string());
-                        break;
-                    }
-                }
-                
-                break; // Use first found file
-            }
-        }
-    }
-    
-    // Use folder name as fallback title if not found in any file
-    if metadata.title.is_none() {
-        metadata.title = folder_path
-            .file_name()
-            .map(|name| name.to_string_lossy().to_string());
-    }
-    
-    // Set creation date to now if not found
-    metadata.created_date = Some(chrono::Utc::now().format("%Y-%m-%d").to_string());
-    
-    Ok(metadata)
-}
 
 /// Tauri command: Open preview window for a folder
 #[tauri::command]
@@ -292,7 +230,6 @@ pub async fn close_preview_window_cmd(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     #[test]
     fn test_validate_publish_prevents_double_publish() {
@@ -341,56 +278,6 @@ mod tests {
         std::fs::remove_dir_all(&temp_dir).ok();
     }
 
-    #[test]
-    fn test_prepare_syndication_filters_invalid_targets() {
-        let state = PreviewState::new(
-            PathBuf::from("/test"),
-            "http://localhost:8080".to_string()
-        );
-        
-        let targets = vec![
-            "twitter".to_string(),        // Valid
-            "platform with spaces".to_string(), // Invalid
-            "dev.to".to_string(),         // Valid
-            "platform/with/slashes".to_string(), // Invalid
-        ];
-        
-        let result = prepare_syndication_data(&state, targets).unwrap();
-        
-        assert_eq!(result.len(), 2);
-        assert!(result.contains(&"twitter".to_string()));
-        assert!(result.contains(&"dev.to".to_string()));
-    }
 
-    #[test]
-    fn test_prepare_syndication_no_valid_targets() {
-        let state = PreviewState::new(
-            PathBuf::from("/test"),
-            "http://localhost:8080".to_string()
-        );
-        
-        let targets = vec![
-            "invalid target".to_string(),
-            "another/invalid".to_string(),
-        ];
-        
-        let result = prepare_syndication_data(&state, targets);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("No valid syndication targets"));
-    }
 
-    #[test]
-    fn test_format_preview_metadata_fallback_title() {
-        // Test with current directory (should exist)
-        let current_dir = std::env::current_dir().unwrap();
-        let metadata = format_preview_metadata(&current_dir).unwrap();
-        
-        // Title should be set either from file content or folder name
-        assert!(metadata.title.is_some(), "Title should be set from folder name as fallback");
-        assert!(metadata.created_date.is_some(), "Created date should always be set");
-        
-        // Should have some reasonable title (either from file or folder name)
-        let title = metadata.title.unwrap();
-        assert!(!title.is_empty(), "Title should not be empty");
-    }
 }

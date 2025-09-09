@@ -36,32 +36,6 @@ pub fn build_preview_url(base: &str, path: &Path) -> String {
     format!("{}?source={}", base.trim_end_matches('/'), encoded_path)
 }
 
-/// Add preview parameters to existing URL
-pub fn add_preview_params(url: String, params: PreviewParams) -> String {
-    let mut result = url;
-    let separator = if result.contains('?') { "&" } else { "?" };
-    
-    let mut query_parts = Vec::new();
-    
-    if let Some(token) = params.refresh_token {
-        query_parts.push(format!("token={}", urlencoding::encode(&token)));
-    }
-    
-    if let Some(theme) = params.theme {
-        query_parts.push(format!("theme={}", urlencoding::encode(&theme)));
-    }
-    
-    if params.debug {
-        query_parts.push("debug=true".to_string());
-    }
-    
-    if !query_parts.is_empty() {
-        result.push_str(separator);
-        result.push_str(&query_parts.join("&"));
-    }
-    
-    result
-}
 
 /// Sanitize preview path for security
 pub fn sanitize_preview_path(path: &Path) -> PathBuf {
@@ -77,21 +51,6 @@ pub fn sanitize_preview_path(path: &Path) -> PathBuf {
     PathBuf::from(sanitized)
 }
 
-/// Extract folder path from preview URL
-pub fn extract_folder_from_preview_url(url: &str) -> Option<PathBuf> {
-    if let Ok(parsed_url) = url::Url::parse(url) {
-        if let Some(source) = parsed_url.query_pairs()
-            .find(|(key, _)| key == "source")
-            .map(|(_, value)| value.to_string()) 
-        {
-            // URL decode the path
-            if let Ok(decoded) = urlencoding::decode(&source) {
-                return Some(PathBuf::from(decoded.to_string()));
-            }
-        }
-    }
-    None
-}
 
 #[cfg(test)]
 mod tests {
@@ -120,44 +79,8 @@ mod tests {
         assert_eq!(result, "http://localhost:8080?source=%2Fsimple%2Fpath");
     }
 
-    #[test]
-    fn test_add_preview_params_query_string() {
-        let url = "http://localhost:8080?source=test".to_string();
-        let params = PreviewParams {
-            refresh_token: Some("abc123".to_string()),
-            theme: Some("dark".to_string()),
-            debug: true,
-        };
-        
-        let result = add_preview_params(url, params);
-        
-        assert!(result.contains("&token=abc123"));
-        assert!(result.contains("&theme=dark"));
-        assert!(result.contains("&debug=true"));
-    }
 
-    #[test]
-    fn test_add_preview_params_no_existing_query() {
-        let url = "http://localhost:8080".to_string();
-        let params = PreviewParams {
-            refresh_token: Some("token123".to_string()),
-            ..Default::default()
-        };
-        
-        let result = add_preview_params(url, params);
-        
-        assert!(result.contains("?token=token123"));
-    }
 
-    #[test]
-    fn test_add_preview_params_empty() {
-        let url = "http://localhost:8080".to_string();
-        let params = PreviewParams::default();
-        
-        let result = add_preview_params(url, params);
-        
-        assert_eq!(result, "http://localhost:8080");
-    }
 
     #[test]
     fn test_sanitize_preview_path_security() {
@@ -187,28 +110,6 @@ mod tests {
         assert_eq!(result.to_string_lossy(), "/docs/USER/file.txt");
     }
 
-    #[test]
-    fn test_extract_folder_from_preview_url() {
-        let url = "http://localhost:8080?source=%2FUsers%2Ftest%2FMy%20Documents";
-        let result = extract_folder_from_preview_url(url);
-        
-        assert!(result.is_some());
-        assert_eq!(result.unwrap(), PathBuf::from("/Users/test/My Documents"));
-    }
 
-    #[test]
-    fn test_extract_folder_from_preview_url_invalid() {
-        let url = "invalid-url";
-        let result = extract_folder_from_preview_url(url);
-        
-        assert!(result.is_none());
-    }
 
-    #[test]
-    fn test_extract_folder_no_source_param() {
-        let url = "http://localhost:8080?theme=dark";
-        let result = extract_folder_from_preview_url(url);
-        
-        assert!(result.is_none());
-    }
 }

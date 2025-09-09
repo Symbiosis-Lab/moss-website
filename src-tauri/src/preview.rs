@@ -7,7 +7,9 @@ pub mod state;
 pub mod window;
 pub mod url_builder;
 pub mod ipc;
+pub mod commands;
 
 pub use state::*;
 pub use window::*;
 pub use url_builder::*;
+pub use commands::*;

@@ -4,10 +4,6 @@
 
 Following the "test behavior, not implementation" principle, we focus on **user-observable outcomes** rather than internal mechanics. Our tests validate what users experience, not how code is structured.
 
-**The Critical Distinction:**
-- ❌ **Implementation testing**: Verify icon pixel data is correct
-- ✅ **Behavior testing**: Verify tray icon appears and responds to clicks
-
 ## Current Test Architecture
 
 ### Streamlined Test Suite (4 essential tests)
@@ -22,6 +18,7 @@ moss/
 ```
 
 **Test Categories:**
+
 - **Behavioral Tests (4)**: Core business logic that users depend on
 - **Mock runtime tests**: Removed - could not test actual tray/menu creation logic
 - **JavaScript tests**: Removed - were testing browser APIs, not our application logic
@@ -29,6 +26,7 @@ moss/
 ### Test Categories
 
 #### **1. Content Analysis Tests** (Core Business Logic)
+
 Tests the heart of moss functionality - analyzing folders for website generation:
 
 ```rust
@@ -42,10 +40,11 @@ fn test_content_analysis_homepage_detection() {
 ```
 
 #### **2. Finder Integration Tests** (User Workflow)
+
 Tests the complete right-click → publish workflow:
 
 ```rust
-#[test] 
+#[test]
 fn test_deep_link_url_parsing() {
     // Tests moss://publish?path=... URLs from Finder integration
     let test_cases = [
@@ -57,6 +56,7 @@ fn test_deep_link_url_parsing() {
 ```
 
 #### **3. Publishing Workflow Tests** (End-to-End Logic)
+
 Tests folder analysis and publishing pipeline:
 
 ```rust
@@ -65,13 +65,14 @@ fn test_folder_publishing_workflow() {
     // Tests complete publishing logic: validation → analysis → results
     let result = publish_folder("/valid/path");
     assert!(result.is_ok());
-    
+
     let error = publish_folder("/invalid/path");
     assert!(error.is_err());
 }
 ```
 
 #### **4. Mock Runtime Tests** (App Logic Verification)
+
 Tests that our app correctly attempts to create tray icons and manage windows:
 
 ```rust
@@ -81,12 +82,12 @@ async fn test_tray_icon_creation_attempt() {
     let app = tauri::test::mock_builder()
         .build(mock_context(noop_assets()))
         .unwrap();
-        
+
     let tray = app.tray_by_id("main");
     assert!(tray.is_some(), "App should attempt to create tray icon with ID 'main'");
 }
 
-#[tokio::test] 
+#[tokio::test]
 async fn test_tray_menu_structure() {
     // Tests: App sets up correct menu items (Settings, About, Quit)
     // Note: Mock runtime can't test if menu actually appears to user
@@ -104,6 +105,7 @@ async fn test_window_hide_behavior() {
 ## Running Tests
 
 ### Backend Tests
+
 ```bash
 cd src-tauri && cargo test      # Run all tests (behavioral + mock runtime)
 cargo test test_content_        # Run content analysis tests only
@@ -112,6 +114,7 @@ cargo test test_folder_         # Run publishing workflow tests only
 ```
 
 ### Removed Commands
+
 ```bash
 # These no longer exist (were testing pointless things):
 npm test                        # Removed: tested browser APIs
@@ -121,6 +124,7 @@ npm run test:integration        # Removed: tested hardcoded values
 ## What We Don't Test (And Why)
 
 ### **Removed: Fake Simulation Tests**
+
 ```rust
 // REMOVED - This was completely useless:
 fn test_settings_menu_behavior() {
@@ -132,11 +136,12 @@ fn test_settings_menu_behavior() {
 **Why removed**: Tests that hardcoded strings equal themselves. No actual menu clicks, window management, or user behavior.
 
 ### **Removed: Browser API Tests**
+
 ```javascript
 // REMOVED - This was testing JavaScript's built-in functions:
-it('should parse URLs', () => {
-    const url = new URL('moss://publish?path=/test');
-    expect(url.searchParams.get('path')).toBe('/test');  // Of course it does!
+it("should parse URLs", () => {
+  const url = new URL("moss://publish?path=/test");
+  expect(url.searchParams.get("path")).toBe("/test"); // Of course it does!
 });
 ```
 
@@ -145,13 +150,15 @@ it('should parse URLs', () => {
 ## Current Testing Gap: Tray Icon and Menu Behavior
 
 ### **What We Cannot Test (Current Architecture Limitation)**
+
 - ❌ **Tray icon creation**: Our setup() function is not accessible to tests
-- ❌ **Menu structure**: Mock runtime cannot test our actual menu creation logic  
+- ❌ **Menu structure**: Mock runtime cannot test our actual menu creation logic
 - ❌ **Icon visibility**: Whether icon appears in system tray
 - ❌ **Menu interaction**: Whether right-click menus actually work
 - ❌ **Finder integration**: Whether "Publish to Web" appears in context menus
 
 ### **Why Mock Runtime Tests Were Removed**
+
 We attempted to create mock runtime tests but encountered fundamental blockers:
 
 1. **Setup function scope**: Cannot import/call setup() from test module
@@ -162,6 +169,7 @@ We attempted to create mock runtime tests but encountered fundamental blockers:
 **Result**: Mock runtime tests would have been useless - testing fake implementations instead of our real code.
 
 ### **Current Testing Strategy**
+
 - **Unit tests**: 4 essential tests for business logic users depend on
 - **Manual testing**: Verify tray icon appears and menus work during development
 - **Future platform tests**: For automated verification in release cycles
@@ -169,6 +177,7 @@ We attempted to create mock runtime tests but encountered fundamental blockers:
 ### **Future: Refactor Setup for Better Testing**
 
 **Extract Business Logic from Setup Closure**
+
 ```rust
 // Current: Inline setup closure (hard to test)
 .setup(|app| {
@@ -208,6 +217,7 @@ mod tests {
 ```
 
 **Benefits of Extraction:**
+
 - Business logic becomes unit testable
 - Setup function stays clean and focused
 - Easier to mock dependencies
@@ -216,6 +226,7 @@ mod tests {
 ### **Future: Integration/E2E Testing** (For Release Cycles)
 
 **Platform-Specific System Testing**
+
 ```rust
 // Future: Real system integration testing
 #[test]
@@ -226,7 +237,7 @@ fn test_real_tray_icon_visibility() {
         let is_visible = check_macos_tray_icon_with_accessibility_api();
         assert!(is_visible, "Icon should be visible in macOS menu bar");
     }
-    
+
     #[cfg(target_os = "windows")]
     {
         // Use Windows system tray APIs to verify icon
@@ -240,23 +251,24 @@ fn test_finder_integration_e2e() {
     // Launch app, install Finder integration, verify context menu appears
     let app_process = launch_app_in_test_mode();
     let integration_result = install_finder_integration();
-    
+
     // Simulate right-click on folder in Finder
     let context_menu = simulate_finder_right_click("/test/folder");
     assert!(context_menu.contains("Publish to Web"));
-    
+
     cleanup_test_app(app_process);
 }
 ```
 
 **WebDriver Testing for UI Workflows**
+
 ```javascript
 // Future: E2E testing with WebDriver
-describe('moss UI Integration', () => {
-  test('Settings window opens from tray menu', async () => {
+describe("moss UI Integration", () => {
+  test("Settings window opens from tray menu", async () => {
     // Start app, click tray icon, verify settings window appears
     await driver.click('[data-testid="tray-settings"]');
-    const settingsWindow = await driver.findElement('#settings-window');
+    const settingsWindow = await driver.findElement("#settings-window");
     expect(settingsWindow).toBeVisible();
   });
 });
@@ -265,6 +277,7 @@ describe('moss UI Integration', () => {
 ## Testing Strategy
 
 ### **Current Approach: Fast Unit Tests + Future Refactoring**
+
 - **Business Logic**: Test core functionality (content analysis, publishing workflow) ✅
 - **Setup Function**: Inline closure - manual testing only ⚠️
 - **Future Refactoring**: Extract setup logic for better unit testing 📋
@@ -273,30 +286,35 @@ describe('moss UI Integration', () => {
 ### **Recommended Testing Evolution**
 
 **Phase 1: Current (Completed)**
+
 - ✅ 4 essential behavioral tests for core business logic
 - ✅ Removed 17 useless implementation tests
 - ✅ Frontend-backend command alignment fixed
 
 **Phase 2: Code Refactoring (Future)**
+
 - 📋 Extract `create_tray_icon()` function from setup closure
-- 📋 Extract `setup_deep_links()` function from setup closure  
+- 📋 Extract `setup_deep_links()` function from setup closure
 - 📋 Extract `configure_windows()` function from setup closure
 - 📋 Add unit tests for extracted functions
 - 📋 Keep setup closure clean and simple
 
 **Phase 3: Integration Testing (Release Cycles)**
+
 - 📋 Platform-specific tray icon visibility tests (macOS/Windows)
 - 📋 E2E Finder integration tests (right-click context menu)
 - 📋 WebDriver tests for settings UI workflows
 - 📋 Deep link end-to-end testing (moss:// URLs)
 
 ### **Quality Over Quantity**
+
 - **4 essential tests** instead of 21 pointless ones
 - **100% behavioral focus**: Every test validates real business logic users depend on
 - **0 useless tests**: No testing of standard libraries, hardcoded values, or fake implementations
 - **Clear testing gaps**: Document what we cannot test rather than create fake tests
 
 ### **Test Naming Convention**
+
 ```rust
 #[test]
 fn test_content_analysis_homepage_detection() {  // What feature is tested
@@ -323,17 +341,18 @@ When adding features, ask:
 3. **Does this test something our code does?** (Not browser/OS APIs?)
 
 ### **Template for Good Tests**
+
 ```rust
 #[test]
 fn test_new_user_facing_feature() {
     // Behavior: When user does X, they should see Y
-    
+
     // Arrange: Set up realistic user scenario
     let user_input = create_realistic_test_data();
-    
+
     // Act: Trigger the actual feature
     let result = our_feature_function(user_input);
-    
+
     // Assert: Verify user-observable outcome
     assert!(result.matches_user_expectation());
 }
@@ -342,20 +361,23 @@ fn test_new_user_facing_feature() {
 ## Key Insights
 
 ### **What Makes Tests Valuable**
+
 - Tests survive code refactoring (behavior-focused)
 - Tests catch real user-facing bugs
 - Tests document expected behavior for new developers
 - Tests enable confident code changes
 
 ### **Red Flags in Testing**
+
 - Testing that library functions work correctly
-- Testing that hardcoded values equal themselves  
+- Testing that hardcoded values equal themselves
 - Complex test setup that recreates application logic
 - Tests that break when you refactor internal code structure
 
 ### **Hard-Learned Lessons from Testing Cleanup**
 
 **1. Architectural Blockers Beat Clever Testing**
+
 - Cannot test `setup()` function from test modules due to Rust visibility rules
 - Mock runtime limitations prevent testing actual UI component creation
 - Real system integration testing requires platform-specific approaches
@@ -363,21 +385,25 @@ fn test_new_user_facing_feature() {
 - **Solution**: Extract business logic from setup closure into testable functions
 
 **2. Frontend-Backend Command Alignment Critical**
+
 - Frontend calling non-existent backend commands fails silently during development
 - Build process doesn't catch invalid `invoke()` calls until runtime
 - **Best Practice**: Always verify backend commands exist before frontend integration
 
 **3. Tauri Version Compatibility for Testing**
+
 - Tauri 2.7.0 MockRuntime had missing trait implementations
 - Tauri 2.8 resolved MockRuntime compilation issues
 - **Best Practice**: Use latest stable Tauri for testing infrastructure
 
 **4. Test Removal is a Feature**
+
 - Eliminated 17 useless tests that provided false confidence
 - Retained 4 essential tests that validate real business logic
 - **Insight**: Fewer, high-quality tests beat many useless ones
 
 **5. "Test Behavior, Not Implementation" in Practice**
+
 ```rust
 // ❌ Useless: Tests hardcoded return values
 fn test_settings_menu_behavior() {
@@ -400,8 +426,9 @@ fn test_content_analysis_homepage_detection() {
 ### The Problem
 
 Current tests validate business logic but miss visual rendering:
+
 - ✅ HTML files created with correct content
-- ✅ CSS path resolution at different depths  
+- ✅ CSS path resolution at different depths
 - ✅ Homepage detection and project classification
 - ❌ Visual appearance in preview window
 - ❌ CSS layout and responsive design
@@ -410,22 +437,23 @@ Current tests validate business logic but miss visual rendering:
 ### Four-Phase Implementation
 
 #### Phase 1: Enhanced Content Validation (Week 1)
+
 Extend current HTML tests with semantic structure assertions:
 
 ```rust
 #[test]
 fn test_ssg_semantic_structure() {
     let index_content = compile_test_site();
-    
+
     // Visual hierarchy validation
     assert!(index_content.contains("<h1>My Blog</h1>"));
     assert!(index_content.contains("class=\"main-nav\""));
     assert!(index_content.contains("<meta name=\"viewport\""));
-    
+
     // Accessibility validation
     assert!(index_content.contains("aria-label"));
     assert!(index_content.contains("alt=\""));
-    
+
     // CSS inclusion validation
     assert!(index_content.contains("href=\"style.css\""));
     assert!(journal_content.contains("href=\"../style.css\""));
@@ -433,6 +461,7 @@ fn test_ssg_semantic_structure() {
 ```
 
 #### Phase 2: Local Server Screenshot Testing (Week 2-3)
+
 Playwright integration for localhost:8080 visual validation:
 
 ```rust
@@ -444,29 +473,29 @@ async fn test_ssg_visual_rendering() {
     // Start compilation and local server
     let temp_dir = create_test_blog_structure();
     let _server = compile_and_serve(temp_dir.to_string()).unwrap();
-    
+
     // Connect Playwright to localhost:8080
     let playwright = Playwright::new().await?;
     let browser = playwright.chromium().launch().await?;
     let page = browser.new_page().await?;
-    
+
     // Test homepage rendering
     page.goto("http://localhost:8080").await?;
     page.wait_for_selector("h1").await?;
-    
+
     // Visual assertions
     let title = page.text_content("h1").await?;
     assert_eq!(title, "My Blog");
-    
+
     // Screenshot baseline comparison
     let screenshot = page.screenshot().await?;
     compare_with_baseline(&screenshot, "homepage.png")?;
-    
+
     // Test responsive breakpoints
     page.set_viewport_size(320, 568).await?; // iPhone SE
     let mobile_screenshot = page.screenshot().await?;
     compare_with_baseline(&mobile_screenshot, "homepage_mobile.png")?;
-    
+
     // Test JavaScript functionality
     page.click(".theme-toggle").await?;
     page.wait_for_timeout(500).await?;
@@ -476,6 +505,7 @@ async fn test_ssg_visual_rendering() {
 ```
 
 #### Phase 3: Tauri Preview Window Testing (Phase 1)
+
 End-to-end visual testing of actual preview interface:
 
 ```rust
@@ -483,37 +513,38 @@ End-to-end visual testing of actual preview interface:
 async fn test_tauri_preview_window_e2e() {
     // Set up Tauri for WebDriver testing
     std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--remote-debugging-port=9222");
-    
+
     // Launch Tauri app in test mode
     let app_process = launch_moss_app_for_testing().await?;
-    
+
     // Connect Playwright to Tauri's webview
     let playwright = Playwright::new().await?;
     let browser = playwright.chromium().connect_over_cdp("http://localhost:9222").await?;
     let contexts = browser.contexts().await?;
     let page = contexts[0].pages().await?[0];
-    
+
     // Test preview window interface
     page.wait_for_selector("[data-testid='preview-content']").await?;
-    
+
     // Test floating controls positioning
     let publish_button = page.locator("[data-testid='publish-button']").await?;
     assert!(publish_button.is_visible().await?);
-    
+
     // Test preview iframe content
     let preview_iframe = page.frame_locator("[data-testid='preview-iframe']").await?;
     let site_title = preview_iframe.locator("h1").text_content().await?;
     assert_eq!(site_title, "My Blog");
-    
+
     // Screenshot full preview window UI
     let preview_screenshot = page.screenshot().await?;
     compare_with_baseline(&preview_screenshot, "preview_window.png")?;
-    
+
     cleanup_test_app(app_process).await?;
 }
 ```
 
 #### Phase 4: Cross-Platform Visual Consistency (Phase 2)
+
 Platform-specific visual validation:
 
 ```rust
@@ -522,7 +553,7 @@ Platform-specific visual validation:
 fn test_macos_native_styling() {
     // Test macOS-specific rendering
     // - Vibrancy effects on floating controls
-    // - SF Pro font rendering 
+    // - SF Pro font rendering
     // - Native scrollbars and window decorations
 }
 
@@ -541,25 +572,25 @@ fn test_windows_native_styling() {
 ```rust
 fn compare_with_baseline(screenshot: &[u8], baseline_name: &str) -> Result<(), String> {
     let baseline_path = format!("tests/visual_baselines/{}", baseline_name);
-    
+
     if !std::path::Path::new(&baseline_path).exists() {
         // First run - create baseline
         std::fs::write(&baseline_path, screenshot)?;
         println!("Created baseline: {}", baseline_name);
         return Ok(());
     }
-    
+
     let baseline = std::fs::read(&baseline_path)?;
-    
+
     // Use image comparison library (e.g., image-compare)
     let diff_percentage = compare_images(&baseline, screenshot)?;
-    
+
     if diff_percentage > 0.1 { // 0.1% threshold
         let diff_path = format!("tests/visual_diffs/{}", baseline_name);
         generate_diff_image(&baseline, screenshot, &diff_path)?;
         return Err(format!("Visual diff detected: {} ({}% difference)", diff_path, diff_percentage));
     }
-    
+
     Ok(())
 }
 ```
