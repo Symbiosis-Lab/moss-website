@@ -19,6 +19,154 @@ use gray_matter::Matter;
 use gray_matter::engine::YAML;
 use serde::{Deserialize, Serialize};
 
+use crate::compile::navigation::{NavigationBuilder, extract_date_from_path, generate_slug};
+
+/// Template types for different page layouts
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TemplateType {
+    /// Homepage and general pages with sidebar
+    Page,
+    /// Journal entries with centered layout and breadcrumbs
+    Article,
+    /// Topic listing pages
+    Topic,
+}
+
+/// Template registry for managing HTML templates
+pub struct TemplateRegistry {
+    page_template: &'static str,
+    article_template: &'static str,
+    topic_template: &'static str,
+}
+
+impl TemplateRegistry {
+    pub fn new() -> Self {
+        Self {
+            page_template: PAGE_TEMPLATE,
+            article_template: ARTICLE_TEMPLATE,
+            topic_template: TOPIC_TEMPLATE,
+        }
+    }
+
+    pub fn get_template(&self, template_type: TemplateType) -> &'static str {
+        match template_type {
+            TemplateType::Page => self.page_template,
+            TemplateType::Article => self.article_template,
+            TemplateType::Topic => self.topic_template,
+        }
+    }
+
+    /// Determines the appropriate template type for a given document and context
+    pub fn select_template_type(doc: Option<&ParsedDocument>, is_homepage: bool) -> TemplateType {
+        match (doc, is_homepage) {
+            (Some(doc), false) if doc.url_path.starts_with("journal/") => TemplateType::Article,
+            _ => TemplateType::Page,
+        }
+    }
+}
+
+/// Path resolution utility for handling relative paths based on directory depth
+pub struct PathResolver {
+    depth: usize,
+}
+
+impl PathResolver {
+    pub fn new(depth: usize) -> Self {
+        Self { depth }
+    }
+
+    /// Calculate depth from URL path
+    pub fn from_url_path(url_path: &str) -> Self {
+        let depth = url_path.matches('/').count();
+        Self::new(depth)
+    }
+
+    /// Generate CSS path based on depth
+    pub fn css_path(&self) -> String {
+        if self.depth == 0 {
+            "style.css".to_string()
+        } else {
+            format!("{}style.css", "../".repeat(self.depth))
+        }
+    }
+
+    /// Generate JavaScript path based on depth
+    pub fn js_path(&self) -> String {
+        if self.depth == 0 {
+            "js/theme.js".to_string()
+        } else {
+            format!("{}js/theme.js", "../".repeat(self.depth))
+        }
+    }
+
+    /// Generate depth-aware permalink for a document
+    pub fn generate_permalink(&self, url_path: &str) -> String {
+        if self.depth == 0 {
+            format!("/{}", url_path)
+        } else {
+            format!("/{}{}", "../".repeat(self.depth), url_path)
+        }
+    }
+
+    /// Get depth value
+    pub fn depth(&self) -> usize {
+        self.depth
+    }
+}
+
+/// Template variable for type-safe template processing
+#[derive(Debug)]
+pub struct TemplateVars {
+    pub title: String,
+    pub css_path: String,
+    pub js_path: String,
+    pub navigation: String,
+    pub homepage_content: String,
+    pub latest_list: Option<String>,
+    pub topics_section: Option<String>,
+    pub breadcrumb: Option<String>,
+}
+
+/// Template processor for centralized template variable replacement
+pub struct TemplateProcessor {
+    registry: TemplateRegistry,
+}
+
+impl TemplateProcessor {
+    pub fn new() -> Self {
+        Self {
+            registry: TemplateRegistry::new(),
+        }
+    }
+
+    /// Process template with variables and return HTML
+    pub fn process(&self, template_type: TemplateType, vars: TemplateVars) -> String {
+        let template = self.registry.get_template(template_type);
+        
+        let mut result = template
+            .replace("{title}", &vars.title)
+            .replace("{css_path}", &vars.css_path)
+            .replace("{js_path}", &vars.js_path)
+            .replace("{navigation}", &vars.navigation)
+            .replace("{homepage_content}", &vars.homepage_content);
+
+        // Optional variables based on template type
+        if let Some(latest_list) = vars.latest_list {
+            result = result.replace("{latest_list}", &latest_list);
+        }
+
+        if let Some(topics_section) = vars.topics_section {
+            result = result.replace("{topics_section}", &topics_section);
+        }
+
+        if let Some(breadcrumb) = vars.breadcrumb {
+            result = result.replace("{breadcrumb}", &breadcrumb);
+        }
+
+        result
+    }
+}
+
 /// Frontmatter structure for parsing YAML metadata from markdown files
 #[derive(Debug, Deserialize, Serialize, Default)]
 pub struct FrontMatter {
@@ -95,9 +243,55 @@ pub fn generate_static_site(source_path: &str, project_structure: &ProjectStruct
         page_count += 1;
     }
     
-    // Generate CSS
+    // Generate topic pages
+    let all_topics = collect_all_topics(&documents);
+    if !all_topics.is_empty() {
+        // Create topics directory
+        let topics_dir = output_dir.join("topics");
+        fs::create_dir_all(&topics_dir).map_err(|e| format!("Failed to create topics directory: {}", e))?;
+        
+        // Generate navigation for topic pages
+        let site_title = project_structure.homepage_file.as_ref()
+            .and_then(|_| documents.iter().find(|d| d.url_path == "index.html"))
+            .map(|d| d.title.clone())
+            .unwrap_or_else(|| "Site".to_string());
+        let nav_builder = NavigationBuilder::new(&documents, &site_title, 1, None);
+        let navigation = nav_builder.generate_main_navigation();
+        
+        for topic in all_topics {
+            let topic_content = generate_topic_page_content(&topic, &documents);
+            let path_resolver = PathResolver::new(1); // Topics are at depth 1
+            let nav_builder = NavigationBuilder::new(&documents, &site_title, 1, None);
+            let processor = TemplateProcessor::new();
+            
+            let vars = TemplateVars {
+                title: format!("Topic: {}", topic),
+                css_path: path_resolver.css_path(),
+                js_path: path_resolver.js_path(),
+                navigation: nav_builder.generate_main_navigation(),
+                homepage_content: topic_content,
+                latest_list: None,
+                topics_section: None,
+                breadcrumb: None,
+            };
+            
+            let topic_html = processor.process(TemplateType::Topic, vars);
+            let topic_file_path = topics_dir.join(format!("{}.html", generate_slug(&topic)));
+            fs::write(&topic_file_path, topic_html).map_err(|e| format!("Failed to write topic page: {}", e))?;
+            page_count += 1;
+        }
+    }
+    
+    // Generate CSS and JavaScript
     let css_content = DEFAULT_CSS;
     fs::write(output_dir.join("style.css"), css_content).map_err(|e| format!("Failed to write CSS: {}", e))?;
+    
+    // Create js directory and copy theme.js
+    let js_dir = output_dir.join("js");
+    fs::create_dir_all(&js_dir).map_err(|e| format!("Failed to create js directory: {}", e))?;
+    
+    let js_content = include_str!("../assets/js/theme.js");
+    fs::write(js_dir.join("theme.js"), js_content).map_err(|e| format!("Failed to write theme.js: {}", e))?;
     
     // Copy image files
     for file_info in &project_structure.image_files {
@@ -200,6 +394,13 @@ pub fn process_markdown_file(file_path: &str, content: &str) -> Result<ParsedDoc
     // Generate excerpt from content
     let excerpt = extract_excerpt(&html_content);
     
+    // Generate enhanced fields following SSG best practices
+    let slug = generate_slug(&title);
+    let depth = url_path.matches('/').count();
+    let path_resolver = PathResolver::new(depth);
+    let permalink = path_resolver.generate_permalink(&url_path);
+    let display_title = resolve_display_title(&title, &html_content, &url_path);
+    
     Ok(ParsedDocument {
         title,
         content: result.content,
@@ -209,10 +410,13 @@ pub fn process_markdown_file(file_path: &str, content: &str) -> Result<ParsedDoc
         topics,
         reading_time,
         excerpt,
+        slug,
+        permalink,
+        display_title,
     })
 }
 
-/// Unified HTML generation function for all page types.
+/// Unified HTML generation function for all page types using new architecture.
 pub fn generate_html(
     doc: Option<&ParsedDocument>, 
     all_docs: &[ParsedDocument], 
@@ -228,17 +432,15 @@ pub fn generate_html(
     // Calculate depth for path adjustments
     let depth = doc.map(|d| d.url_path.matches('/').count()).unwrap_or(0);
     
-    // Generate navigation and sidebar with depth awareness
+    // Initialize utilities
+    let path_resolver = PathResolver::new(depth);
     let current_page_url = doc.map(|d| d.url_path.as_str());
-    let navigation = generate_navigation(all_docs, &site_title, depth, current_page_url);
-    let latest_list = generate_latest_sidebar(all_docs, project, depth);
+    let nav_builder = NavigationBuilder::new(all_docs, &site_title, depth, current_page_url);
+    let processor = TemplateProcessor::new();
     
-    // Determine CSS path based on document depth
-    let css_path = if depth == 0 {
-        "style.css".to_string()
-    } else {
-        "../".repeat(depth) + "style.css"
-    };
+    // Determine template type
+    let template_type = TemplateRegistry::select_template_type(doc, is_homepage);
+    let is_article_page = template_type == TemplateType::Article;
     
     // Prepare content based on page type
     let (page_title, homepage_content) = match (doc, is_homepage) {
@@ -267,8 +469,34 @@ pub fn generate_html(
             (doc.title.clone(), content)
         },
         (Some(doc), false) => {
-            // Regular page - use content as-is without adding filename title
-            (doc.title.clone(), doc.html_content.clone())
+            // Regular page - remove duplicate title if it matches
+            let mut content = doc.html_content.clone();
+            
+            // Remove the first H1 heading based on page type
+            let should_remove_h1 = if is_navigation_page(&doc.url_path) {
+                // For navigation pages: always remove first H1 (title shown in nav)
+                true
+            } else if is_article_page {
+                // For article pages: remove H1 if it matches title (shown in breadcrumb)
+                if let Some(_h1_start) = content.find("<h1>") {
+                    if let Some(h1_end) = content.find("</h1>") {
+                        let h1_content = &content[_h1_start + 4..h1_end]; // +4 to skip "<h1>"
+                        h1_content.trim() == doc.title.trim()
+                    } else { false }
+                } else { false }
+            } else {
+                false
+            };
+            
+            if should_remove_h1 {
+                if let Some(_h1_start) = content.find("<h1>") {
+                    if let Some(h1_end) = content.find("</h1>") {
+                        content = content[h1_end + 5..].to_string(); // +5 to skip "</h1>"
+                    }
+                }
+            }
+            
+            (doc.title.clone(), content)
         },
         (None, false) => {
             // Pure blog index page (generate_index_page equivalent)
@@ -282,78 +510,128 @@ pub fn generate_html(
         }
     };
 
-    // Generate topics section for homepage
-    let topics_section = if is_homepage && doc.is_some() {
-        let topics_inline = generate_topics_inline(all_docs);
-        if topics_inline.is_empty() {
-            String::new()
+    // Build template variables
+    let vars = TemplateVars {
+        title: page_title,
+        css_path: path_resolver.css_path(),
+        js_path: path_resolver.js_path(),
+        navigation: nav_builder.generate_main_navigation(),
+        homepage_content,
+        latest_list: if template_type == TemplateType::Page {
+            Some(nav_builder.generate_latest_sidebar(project))
         } else {
-            format!(r#"
+            None
+        },
+        topics_section: if is_homepage && doc.is_some() {
+            let topics_inline = nav_builder.generate_topics_inline();
+            if topics_inline.is_empty() {
+                None
+            } else {
+                Some(format!(r#"
             <section class="topics">
                 <h3>Topics</h3>
                 {}
-            </section>"#, topics_inline)
-        }
-    } else {
-        String::new()
+            </section>"#, topics_inline))
+            }
+        } else {
+            None
+        },
+        breadcrumb: if is_article_page && doc.is_some() {
+            Some(nav_builder.generate_breadcrumb(doc.unwrap()))
+        } else {
+            None
+        },
     };
     
-    Ok(PAGE_TEMPLATE
-        .replace("{title}", &page_title)
-        .replace("{css_path}", &css_path)
-        .replace("{navigation}", &navigation)
-        .replace("{homepage_content}", &homepage_content)
-        .replace("{latest_list}", &latest_list)
-        .replace("{topics_section}", &topics_section))
+    Ok(processor.process(template_type, vars))
 }
 
-/// Generates minimal sidebar with latest 10 journal entries formatted as stephago.com.
-pub fn generate_latest_sidebar(documents: &[ParsedDocument], project: &ProjectStructure, depth: usize) -> String {
-    let mut journal_entries: Vec<&ParsedDocument> = documents.iter()
-        .filter(|doc| doc.url_path.starts_with("journal/"))
+
+/// Generates content for a topic page showing all articles with that topic.
+/// Follows Hugo taxonomy template patterns for consistent URL and title handling.
+/// References: https://gohugo.io/templates/taxonomy-templates/
+pub fn generate_topic_page_content(topic: &str, documents: &[ParsedDocument]) -> String {
+    let articles_with_topic: Vec<&ParsedDocument> = documents.iter()
+        .filter(|doc| doc.topics.contains(&topic.to_string()))
         .collect();
     
-    // Sort by date (newest first)
-    journal_entries.sort_by(|a, b| b.url_path.cmp(&a.url_path));
-    
-    if journal_entries.is_empty() {
-        return "<p class=\"no-posts\">No posts yet</p>".to_string();
+    if articles_with_topic.is_empty() {
+        return format!("<p>No articles found for topic: {}</p>", topic);
     }
     
-    let items: Vec<String> = journal_entries.iter()
-        .take(10)
+    let article_list: Vec<String> = articles_with_topic.iter()
         .map(|doc| {
-            // Extract date from filename (e.g., "2025-01-15.html" → "2025 · 01")
-            let date_display = extract_date_from_path(&doc.url_path, Some(&project.root_path));
+            // Use the same date format as Latest section (YYYY · MM)
+            let date_display = extract_date_from_path(&doc.url_path, None);
             
-            let display_title = if doc.title.replace(" ", "-").to_lowercase() 
-                == doc.url_path.strip_prefix("journal/").unwrap_or("").strip_suffix(".html").unwrap_or("").to_lowercase() {
-                extract_first_heading(&doc.html_content).unwrap_or(doc.title.clone())
-            } else {
-                doc.title.clone()
-            };
-            
-            // Adjust journal link paths based on current depth
-            let link_path = if depth == 0 {
-                // From root: use journal/filename.html
-                doc.url_path.clone()
-            } else if depth == 1 && doc.url_path.starts_with("journal/") {
-                // From journal directory: use filename.html only
-                doc.url_path.strip_prefix("journal/").unwrap_or(&doc.url_path).to_string()
-            } else {
-                // From other depths: go back to root then to journal
-                format!("{}{}", "../".repeat(depth), doc.url_path)
-            };
+            // Topic pages are at depth 1, so prepend "../" to URLs
+            let article_url = format!("../{}", doc.url_path);
             
             format!(
-                "<li><span class=\"entry-date\">{}</span><a href=\"{}\">{}</a></li>", 
-                date_display, link_path, display_title
+                "<p>{} <a href=\"{}\">{}</a></p>",
+                date_display, article_url, doc.display_title
             )
         })
         .collect();
     
-    format!("<ul class=\"latest-list\">{}</ul>", items.join(""))
+    format!(
+        "<h1>Topic: {}</h1>\n<div class=\"topic-articles\">{}</div>",
+        topic,
+        article_list.join("\n")
+    )
 }
+
+/// Extracts title from filename by removing path and extension, following Jekyll conventions.
+/// References: https://jekyllrb.com/docs/posts/#creating-posts
+pub fn extract_filename_title(url_path: &str) -> String {
+    Path::new(url_path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("Untitled")
+        .replace("-", " ")
+        .replace("_", " ")
+}
+
+
+
+/// Resolves the best display title from available sources.
+/// Following Eleventy computed data cascade: H1 > frontmatter.title > filename
+/// References: https://www.11ty.dev/docs/data-computed/
+pub fn resolve_display_title(title: &str, html_content: &str, url_path: &str) -> String {
+    // Priority 1: Try to extract H1 from HTML content
+    if let Some(h1_content) = extract_first_heading(html_content) {
+        // Only use H1 if it's different from filename-derived title
+        let filename_title = extract_filename_title(url_path);
+        if h1_content != filename_title && !h1_content.trim().is_empty() {
+            return h1_content;
+        }
+    }
+    
+    // Priority 2: Use provided title (from frontmatter or filename processing)
+    title.to_string()
+}
+
+/// Determines if a document is a navigation page (appears in main nav).
+/// Navigation pages exclude journal entries, topic pages, and homepage.
+/// These pages show their titles in the navigation, so content titles become redundant.
+pub fn is_navigation_page(url_path: &str) -> bool {
+    !url_path.starts_with("journal/") && 
+    !url_path.starts_with("topics/") && 
+    url_path != "index.html"
+}
+
+/// Collects all unique topics from documents.
+pub fn collect_all_topics(documents: &[ParsedDocument]) -> Vec<String> {
+    let mut all_topics: Vec<String> = documents.iter()
+        .flat_map(|doc| doc.topics.iter())
+        .cloned()
+        .collect();
+    
+    all_topics.sort();
+    all_topics.dedup();
+    all_topics
+}
+
 
 /// Checks if a file path represents an index/homepage file
 pub fn is_index_file(file_path: &str) -> bool {
@@ -369,63 +647,7 @@ pub fn is_index_file(file_path: &str) -> bool {
     )
 }
 
-/// Extract date from file path and format as "YYYY · MM"
-pub fn extract_date_from_path(url_path: &str, root_path: Option<&str>) -> String {
-    // Try to extract date from pattern like "journal/2025-01-15.html"
-    if let Some(filename) = url_path.strip_prefix("journal/") {
-        if let Some(date_part) = filename.strip_suffix(".html") {
-            // Parse YYYY-MM-DD pattern
-            let parts: Vec<&str> = date_part.split('-').collect();
-            if parts.len() >= 2 {
-                let year = parts[0];
-                let month = parts[1];
-                return format!("{} · {}", year, month);
-            }
-        }
-    }
-    
-    // Fallback: try to get file creation date from filesystem
-    if let Some(root) = root_path {
-        let file_path = std::path::Path::new(root).join(url_path.replace(".html", ".md"));
-        if let Ok(metadata) = std::fs::metadata(&file_path) {
-            if let Ok(created) = metadata.created() {
-                if let Ok(datetime) = created.duration_since(std::time::UNIX_EPOCH) {
-                    let secs = datetime.as_secs();
-                    // Convert to naive datetime (UTC)
-                    if let Some(dt) = chrono::DateTime::from_timestamp(secs as i64, 0).map(|dt| dt.naive_utc()) {
-                        let month = dt.format("%m").to_string();
-                        return format!("{} · {}", dt.format("%Y"), month);
-                    }
-                }
-            }
-        }
-    }
-    
-    "Unknown".to_string()
-}
 
-/// Generates inline topics section with comma-separated tags.
-pub fn generate_topics_inline(documents: &[ParsedDocument]) -> String {
-    let mut all_topics: Vec<String> = Vec::new();
-    
-    for doc in documents {
-        all_topics.extend(doc.topics.clone());
-    }
-    
-    if all_topics.is_empty() {
-        return String::new(); // Hide section if no topics
-    }
-    
-    // Remove duplicates and sort
-    all_topics.sort();
-    all_topics.dedup();
-    
-    let topic_links: Vec<String> = all_topics.iter()
-        .map(|topic| format!("<a href=\"#{}\">{}</a>", topic, topic))
-        .collect();
-    
-    format!("<p class=\"topic-tags\">{}</p>", topic_links.join(", "))
-}
 
 /// Generates content table showing all posts with metadata.
 pub fn generate_content_table(documents: &[ParsedDocument]) -> String {
@@ -450,7 +672,7 @@ pub fn generate_content_table(documents: &[ParsedDocument]) -> String {
         
         table_rows.push(format!(
             "<tr><td><a href=\"{}\">{}</a></td><td>{}</td><td>{}</td><td>{} min</td></tr>",
-            doc.url_path, doc.title, date_str, topics_str, doc.reading_time
+            doc.url_path, doc.display_title, date_str, topics_str, doc.reading_time
         ));
     }
     
@@ -471,43 +693,6 @@ pub fn generate_content_table(documents: &[ParsedDocument]) -> String {
     }
 }
 
-/// Generates navigation menu HTML with site name on left and items on right.
-pub fn generate_navigation(documents: &[ParsedDocument], site_title: &str, depth: usize, current_page_url: Option<&str>) -> String {
-    // Site name on the left - adjust home link based on depth
-    let home_path = if depth == 0 { "/" } else { &"../".repeat(depth) };
-    let site_name = format!(r#"<div class="nav-left"><a href="{}" class="site-name">{}</a></div>"#, home_path, site_title);
-    
-    // Navigation items on the right
-    let path_prefix = "../".repeat(depth);
-    let page_items: Vec<String> = documents.iter()
-        .filter(|doc| !doc.url_path.starts_with("journal/") && doc.url_path != "index.html") // Exclude journal entries and homepage from navigation
-        .map(|doc| {
-            let label = doc.title.clone();
-            let href = if depth == 0 { 
-                doc.url_path.clone() 
-            } else { 
-                format!("{}{}", path_prefix, doc.url_path)
-            };
-            
-            // Add active class if this is the current page
-            let class = if current_page_url.map_or(false, |url| url == doc.url_path) {
-                r#" class="active""#
-            } else {
-                ""
-            };
-            
-            format!(r#"<a href="{}"{class}>{}</a>"#, href, label)
-        })
-        .collect();
-    
-    // Add dark mode toggle
-    let mut nav_right_items = page_items;
-    nav_right_items.push(r#"<button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle dark mode">◐</button>"#.to_string());
-    
-    let nav_right = format!(r#"<div class="nav-right">{}</div>"#, nav_right_items.join(""));
-    
-    format!("{}{}", site_name, nav_right)
-}
 
 /// Extracts an excerpt from HTML content (first paragraph or first 200 characters).
 pub fn extract_excerpt(html_content: &str) -> String {
@@ -596,6 +781,8 @@ pub fn format_date(date_str: &str) -> String {
 /// which uses rerun-if-changed to track asset dependencies.
 const DEFAULT_CSS: &str = include_str!("../assets/default.css");
 const PAGE_TEMPLATE: &str = include_str!("../assets/templates/index.html");
+const ARTICLE_TEMPLATE: &str = include_str!("../assets/templates/article.html");
+const TOPIC_TEMPLATE: &str = include_str!("../assets/templates/topic.html");
 
 #[cfg(test)]
 mod tests {

@@ -19,7 +19,7 @@ use std::path::Path;
 /// * `site_path` - Path to the generated site directory containing index.html
 /// 
 /// # Returns
-/// * `Ok(())` - Successfully started server
+/// * `Ok(u16)` - Successfully started server, returns the port number used
 /// * `Err(String)` - Failed to start server
 /// 
 /// # Implementation
@@ -33,7 +33,7 @@ use std::path::Path;
 /// - Tries port 8080 first (consistency with preview window)
 /// - Scans for next available port if 8080 is taken
 /// - Fails if no ports available in range
-pub fn start_preview_server(site_path: &str) -> Result<(), String> {
+pub async fn start_preview_server(site_path: &str) -> Result<u16, String> {
     let site_path = site_path.to_string();
     
     // === SETUP PHASE ===
@@ -87,10 +87,14 @@ pub fn start_preview_server(site_path: &str) -> Result<(), String> {
         });
     }
     
-    // Give server a moment to start
-    std::thread::sleep(std::time::Duration::from_millis(500));
+    // Verify server is ready before returning
+    println!("🔧 Verifying server is ready on port {}", port);
+    if verify_server_ready(port).await.is_err() {
+        return Err(format!("Server started but failed readiness check on port {}", port));
+    }
     
-    Ok(())
+    println!("✅ Preview server ready on http://localhost:{}", port);
+    Ok(port)
 }
 
 /// Finds an available TCP port starting from the given port number.
@@ -126,4 +130,166 @@ pub fn find_available_port(start_port: u16) -> Result<u16, String> {
 /// * `false` - Port is already in use
 pub fn is_port_available(port: u16) -> bool {
     std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
+}
+
+/// Verifies that the preview server is ready and responding on the given port.
+/// 
+/// Makes an HTTP request to the server to ensure it's actually serving content
+/// before reporting success to the caller.
+/// 
+/// # Arguments
+/// * `port` - Port number where server should be running
+/// 
+/// # Returns
+/// * `Ok(())` - Server is ready and responding
+/// * `Err(String)` - Server is not ready or responding
+async fn verify_server_ready(port: u16) -> Result<(), String> {
+    let url = format!("http://localhost:{}", port);
+    let max_attempts = 10;
+    let delay_ms = 200;
+    
+    for attempt in 1..=max_attempts {
+        // Give server time to start up
+        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+        
+        // Try to make a simple HTTP request
+        match reqwest::get(&url).await {
+            Ok(response) => {
+                if response.status().is_success() {
+                    println!("🔧 Server readiness check passed on attempt {}", attempt);
+                    return Ok(());
+                } else {
+                    println!("🔧 Server responded with status {} on attempt {}", response.status(), attempt);
+                }
+            }
+            Err(e) => {
+                println!("🔧 Server readiness check attempt {}/{}: {}", attempt, max_attempts, e);
+            }
+        }
+    }
+    
+    Err(format!("Server failed to respond after {} attempts", max_attempts))
+}
+
+/// Stops a preview server running on the given port
+///
+/// Uses system commands to kill any process using the specified port.
+/// This is a simple but effective approach that works across platforms.
+///
+/// # Arguments
+/// * `port` - Port number of the server to stop
+///
+/// # Returns
+/// * `Ok(())` - Server stopped successfully (or no server was running)
+/// * `Err(String)` - Failed to stop server
+pub fn stop_preview_server(port: u16) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+
+        // Use lsof to find and kill processes using the port
+        let output = Command::new("lsof")
+            .args(["-ti", &format!(":{}", port)])
+            .output()
+            .map_err(|e| format!("Failed to run lsof: {}", e))?;
+
+        if output.status.success() {
+            let pids = String::from_utf8_lossy(&output.stdout);
+            let pids: Vec<&str> = pids.trim().split('\n').filter(|pid| !pid.is_empty()).collect();
+
+            if !pids.is_empty() {
+                println!("🔧 Stopping preview server on port {} (PIDs: {:?})", port, pids);
+
+                for pid in pids {
+                    let kill_result = Command::new("kill")
+                        .arg(pid)
+                        .output()
+                        .map_err(|e| format!("Failed to kill process {}: {}", pid, e))?;
+
+                    if !kill_result.status.success() {
+                        eprintln!("⚠️ Failed to kill process {}", pid);
+                    }
+                }
+
+                println!("✅ Preview server stopped on port {}", port);
+            } else {
+                println!("ℹ️ No server running on port {}", port);
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        use std::process::Command;
+
+        // Use lsof to find and kill processes using the port
+        let output = Command::new("lsof")
+            .args(["-ti", &format!(":{}", port)])
+            .output()
+            .map_err(|e| format!("Failed to run lsof: {}", e))?;
+
+        if output.status.success() {
+            let pids = String::from_utf8_lossy(&output.stdout);
+            let pids: Vec<&str> = pids.trim().split('\n').filter(|pid| !pid.is_empty()).collect();
+
+            if !pids.is_empty() {
+                println!("🔧 Stopping preview server on port {} (PIDs: {:?})", port, pids);
+
+                for pid in pids {
+                    let kill_result = Command::new("kill")
+                        .arg(pid)
+                        .output()
+                        .map_err(|e| format!("Failed to kill process {}: {}", pid, e))?;
+
+                    if !kill_result.status.success() {
+                        eprintln!("⚠️ Failed to kill process {}", pid);
+                    }
+                }
+
+                println!("✅ Preview server stopped on port {}", port);
+            } else {
+                println!("ℹ️ No server running on port {}", port);
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+
+        // Use netstat and taskkill on Windows
+        let output = Command::new("netstat")
+            .args(["-ano"])
+            .output()
+            .map_err(|e| format!("Failed to run netstat: {}", e))?;
+
+        if output.status.success() {
+            let netstat_output = String::from_utf8_lossy(&output.stdout);
+
+            // Find lines containing our port
+            for line in netstat_output.lines() {
+                if line.contains(&format!(":{}", port)) && line.contains("LISTENING") {
+                    // Extract PID (last column)
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if let Some(pid) = parts.last() {
+                        println!("🔧 Stopping preview server on port {} (PID: {})", port, pid);
+
+                        let kill_result = Command::new("taskkill")
+                            .args(["/F", "/PID", pid])
+                            .output()
+                            .map_err(|e| format!("Failed to kill process {}: {}", pid, e))?;
+
+                        if kill_result.status.success() {
+                            println!("✅ Preview server stopped on port {}", port);
+                        } else {
+                            eprintln!("⚠️ Failed to kill process {}", pid);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
 }

@@ -152,17 +152,18 @@ Turn source files (Markdown, images, etc.) into web pages
 
 ### 2. **Preview**
 Show user the built site with controls for next actions
-- Open preview window with iframe pointing to local server
-- Display **floating controls** in two zones around preview window:
-  - **Top zone**: Website actions (Publish, Edit, Settings) 
-  - **Right zone**: Syndication targets (Twitter, LinkedIn, Dev.to, etc.)
+- Open main window with iframe displaying the generated website
+- Display **right panel controls** for publishing workflow:
+  - **Publish section**: Git setup, GitHub integration, deployment actions
+  - **Settings section**: Theme toggle, preview refresh, configuration options
+  - **Plugin extensibility**: Plugins can register controls in appropriate sections
 - Allow user to review content before making it public
 
-**Control Window Architecture**:
-- Two transparent Tauri windows with `decorations: false` and `transparent: true`
-- Magnetic positioning relative to main preview window using `onMoved` events
-- Platform-specific transparency: Full vibrancy (macOS), blur effects (Windows), basic transparency (Linux)
-- Plugin extensibility: Plugins register controls in appropriate zones
+**Single Window Architecture**:
+- Main Tauri window with iframe preview and integrated right panel
+- Clean, immersive preview experience with contextual controls
+- Responsive design that adapts to different screen sizes
+- Plugin extensibility through right panel section registration
 
 ### 3. **Publish**
 Upload web pages to hosting platform

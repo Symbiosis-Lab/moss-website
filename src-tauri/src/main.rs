@@ -23,16 +23,21 @@ mod types;
 mod compile;
 mod preview;
 
+#[cfg(debug_assertions)]
+const REGENERATE_TYPES: bool = true;
+
 use compile::{
-    compile_folder, 
-    compile_with_directory_picker, 
-    get_system_status, 
+    compile_folder,
+    compile_folder_sync,
+    compile_folder_async_for_preview_window,
+    compile_with_directory_picker,
+    get_system_status,
     install_finder_integration
 };
 
 #[cfg(test)]
 use compile::{detect_homepage_file, detect_content_folders, detect_project_type_from_content};
-use preview::{PreviewWindowManager, *};
+use preview::{PreviewWindowManager, *, commands::{setup_github_repository, refresh_publish_state, update_main_window_preview}};
 use tauri::Manager;
 
 
@@ -105,40 +110,59 @@ pub fn extract_path_from_deep_link(url: &str) -> Option<String> {
     None
 }
 
-/// Handles deep link URLs by building the site and then opening a preview window
+/// Handles deep link URLs by building the site and opening appropriate preview
 /// 
 /// Workflow: Build → Preview → (user can then Publish/Syndicate)
 /// Processes URLs in the format: `moss://publish?path=<encoded_path>`
+/// If main window exists, uses that for preview; otherwise creates separate preview window
 fn handle_deep_link_url(app: &tauri::AppHandle, url: &str) {
     if let Some(folder_path) = extract_path_from_deep_link(url) {
         let path = std::path::PathBuf::from(&folder_path);
         
-        // Step 1: Build the site (compile files, start local server)
-        match compile_folder(folder_path.clone(), Some(true)) {
-            Ok(result) => {
-                println!("✅ Build completed: {}", result);
-                
-                // Step 2: Open preview window pointing to local server
-                let preview_url = preview::build_preview_url("http://localhost:8080", &path);
-                let state = preview::PreviewState::new(path, preview_url);
-                
-                if let Err(error) = preview::create_preview_window(app, state.clone(), None) {
-                    eprintln!("❌ Failed to create preview window: {}", error);
-                    return;
-                }
-                
-                // Add to manager if available
-                if let Some(manager) = app.try_state::<PreviewWindowManager>() {
-                    manager.add_window(state);
-                    println!("✅ Opened preview window after successful build");
-                } else {
-                    eprintln!("❌ Preview window manager not available");
-                }
-            },
-            Err(error) => {
-                eprintln!("❌ Build failed, cannot open preview: {}", error);
-            }
+        // Check if main window exists (user opened settings)
+        if let Some(_main_window) = app.get_webview_window("main") {
+            // Main window exists, use the unified frontend-backend communication
+            println!("🔧 Main window detected, using frontend compilation flow");
+            
+            // The main window will handle this through frontend deep link processing
+            // No additional action needed here as frontend will call compile_folder
+            return;
         }
+        
+        // No main window, use the original separate preview window approach
+        println!("🔧 No main window, using separate preview window flow");
+
+        // Step 1: Create preview window first with loading state
+        let state = preview::PreviewState::new(path.clone());
+        let preview_id = state.id.clone();
+
+        if let Err(error) = preview::create_preview_window(app, state.clone(), None) {
+            eprintln!("❌ Failed to create preview window: {}", error);
+            return;
+        }
+
+        // Add to manager if available
+        if let Some(manager) = app.try_state::<PreviewWindowManager>() {
+            manager.add_window(state);
+            println!("✅ Preview window created, starting compilation...");
+        } else {
+            eprintln!("❌ Preview window manager not available");
+            return;
+        }
+
+        // Step 2: Start async compilation that will update the preview window when complete
+        let app_handle = app.clone();
+        let folder_path_clone = folder_path.clone();
+        tokio::spawn(async move {
+            match compile_folder_async_for_preview_window(app_handle, folder_path_clone, preview_id).await {
+                Ok(result) => {
+                    println!("✅ Async build completed for preview window: {}", result);
+                },
+                Err(error) => {
+                    eprintln!("❌ Async build failed for preview window: {}", error);
+                }
+            }
+        });
     }
 }
 
@@ -401,26 +425,82 @@ pub fn run() {
             remove_syndication_target,
             get_preview_state,
             close_preview_window_cmd,
-            compile_with_directory_picker
+            compile_with_directory_picker,
+            setup_github_repository,
+            refresh_publish_state,
+            update_main_window_preview
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
 
+#[cfg(debug_assertions)]
+fn generate_typescript_bindings() {
+    use tauri_specta::{collect_commands, collect_events, Builder};
+    use std::path::PathBuf;
+
+    println!("🔧 Generating TypeScript bindings...");
+
+    let builder = Builder::<tauri::Wry>::new()
+        .commands(collect_commands![
+            compile_folder,
+            install_finder_integration,
+            get_system_status,
+            open_preview_window,
+            publish_from_preview,
+            open_editor_from_preview,
+            add_syndication_target,
+            remove_syndication_target,
+            get_preview_state,
+            close_preview_window_cmd,
+            compile_with_directory_picker,
+            setup_github_repository,
+            refresh_publish_state,
+            update_main_window_preview
+        ])
+        .events(collect_events![])
+        // Add individual types using typ() method
+        .typ::<types::ProgressUpdate>()
+        .typ::<types::SystemInfo>()
+        .typ::<types::FileInfo>()
+        .typ::<types::ProjectType>()
+        .typ::<types::ProjectStructure>()
+        .typ::<types::DeploymentConfig>()
+        .typ::<types::MossConfig>()
+        .typ::<types::SiteResult>()
+        .typ::<types::ParsedDocument>()
+        .typ::<preview::state::PreviewState>()
+        .typ::<preview::state::PublishButtonState>()
+        .typ::<preview::state::PreviewMetadata>()
+        .typ::<preview::git::GitRemoteInfo>();
+
+    let bindings_path = PathBuf::from("../src/bindings.ts");
+    let config = specta_typescript::Typescript::default().bigint(specta_typescript::BigIntExportBehavior::String);
+    match builder.export(config, &bindings_path) {
+        Ok(_) => println!("✅ TypeScript bindings exported to {}", bindings_path.display()),
+        Err(e) => eprintln!("❌ Failed to export TypeScript bindings: {}", e),
+    }
+}
+
 /// Application entry point.
-/// 
+///
 /// Handles both GUI mode (default) and CLI mode based on command line arguments.
-/// 
+///
 /// # CLI Usage
 /// - `moss compile <folder_path>` - Compile site from folder
 /// - `moss compile <folder_path> --serve` - Compile and serve site
-/// - `moss compile <folder_path> --watch` - Compile and watch for changes  
+/// - `moss compile <folder_path> --watch` - Compile and watch for changes
 /// - `moss compile <folder_path> --serve --watch` - Compile, serve, and watch
 /// - `moss --help` - Show help message
-/// 
+///
 /// # GUI Mode
 /// - No arguments: Launch Tauri GUI application
 fn main() {
+    // Generate TypeScript bindings in debug mode
+    #[cfg(debug_assertions)]
+    if REGENERATE_TYPES {
+        generate_typescript_bindings();
+    }
     let args: Vec<String> = std::env::args().collect();
     
     // Check for CLI mode arguments
@@ -501,7 +581,7 @@ fn run_cli_compile(folder_path: &str, serve: bool, watch: bool) {
     println!("🏗️  Compiling website from: {}", folder_path);
     
     // Build the site using the compile_folder function
-    match compile_folder(folder_path.to_string(), Some(serve)) {
+    match compile_folder_sync(folder_path.to_string(), Some(serve)) {
         Ok(result) => {
             println!("✅ {}", result);
             

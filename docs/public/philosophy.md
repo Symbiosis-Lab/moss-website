@@ -1,4 +1,4 @@
-## Philosophy
+# philosophy
 
 Like its namesake, moss thrives in the spaces others overlook. It doesn't compete with platforms for sunlight. It creates the foundation layer that enables an entire ecosystem.
 
@@ -16,8 +16,6 @@ Like its namesake, moss thrives in the spaces others overlook. It doesn't compet
 - No platform lock-in
 - No new protocols
 - Everything is a plugin
-
-# The moss Philosophy
 
 ## Core Beliefs
 

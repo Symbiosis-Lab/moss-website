@@ -8,6 +8,9 @@ pub mod window;
 pub mod url_builder;
 pub mod ipc;
 pub mod commands;
+pub mod git;
+pub mod github;
+pub mod github_api;
 
 pub use state::*;
 pub use window::*;

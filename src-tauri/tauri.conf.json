@@ -15,10 +15,11 @@
         "fullscreen": false,
         "resizable": true,
         "title": "moss",
-        "width": 800,
-        "height": 600,
+        "width": 1200,
+        "height": 800,
         "visible": false,
-        "create": false
+        "create": false,
+        "center": true
       }
     ],
     "security": {

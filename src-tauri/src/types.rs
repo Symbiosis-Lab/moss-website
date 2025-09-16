@@ -1,14 +1,34 @@
 //! Data types and structures for moss publishing system
 
 use serde::{Deserialize, Serialize};
+use specta::Type;
 
+/// Real-time progress update for compilation process.
+/// 
+/// Provides structured progress information for the frontend
+/// to display during website compilation and server startup.
+#[derive(Serialize, Deserialize, Debug, Clone, Type)]
+pub struct ProgressUpdate {
+    /// Current step being executed
+    pub step: String,
+    /// Detailed message about current operation
+    pub message: String,
+    /// Progress completion percentage (0-100)
+    pub percentage: u8,
+    /// Whether this step is completed
+    pub completed: bool,
+    /// Preview URL when server is ready (optional)
+    pub url: Option<String>,
+    /// Preview server port when server is ready (optional)
+    pub port: Option<u16>,
+}
 
 /// System diagnostic information for debugging and user support.
 /// 
 /// Contains runtime information about the application's integration
 /// with the operating system and current operational status.
 /// Used by support commands and debugging workflows.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Type)]
 pub struct SystemInfo {
     /// Operating system identifier (e.g., "macos", "windows", "linux")
     pub os: String,
@@ -22,7 +42,7 @@ pub struct SystemInfo {
 /// 
 /// Contains essential information needed for static site generation,
 /// including file type classification and modification timestamps.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Type)]
 pub struct FileInfo {
     /// Relative path from the scanned root directory
     pub path: String,
@@ -38,7 +58,7 @@ pub struct FileInfo {
 /// 
 /// Automatically detected from folder structure to determine the most
 /// appropriate static site generation strategy.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Type)]
 pub enum ProjectType {
     /// Site with homepage and organized content in subdirectories
     /// (e.g., `/posts/`, `/projects/`, `/docs/`)
@@ -53,7 +73,7 @@ pub enum ProjectType {
 /// 
 /// Contains categorized file listings and inferred project characteristics
 /// used to determine the optimal site generation strategy.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Type)]
 pub struct ProjectStructure {
     /// Absolute path to the scanned directory
     pub root_path: String,
@@ -79,7 +99,7 @@ pub struct ProjectStructure {
 /// 
 /// Specifies where and how the generated site should be published,
 /// supporting multiple hosting providers and custom domains.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Type)]
 pub struct DeploymentConfig {
     /// Hosting provider identifier ("moss.pub", "github", "netlify", etc.)
     pub provider: String,
@@ -93,7 +113,7 @@ pub struct DeploymentConfig {
 /// 
 /// Contains site metadata, theme settings, and deployment preferences.
 /// Can be stored in `.moss/config.toml` within project directories.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Type)]
 pub struct MossConfig {
     /// Display name for the generated website
     pub site_name: Option<String>,
@@ -113,7 +133,7 @@ pub struct MossConfig {
 /// 
 /// Contains summary information about the generated site
 /// including page count and output location.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Type)]
 pub struct SiteResult {
     /// Number of HTML pages generated
     pub page_count: usize,
@@ -126,7 +146,11 @@ pub struct SiteResult {
 /// Parsed markdown document with frontmatter and content.
 /// 
 /// Represents a processed markdown file ready for HTML generation.
-#[derive(Debug, Clone)]
+/// Enhanced data model following Jekyll/Hugo patterns for consistent site generation.
+/// References: 
+/// - https://jekyllrb.com/docs/variables/
+/// - https://gohugo.io/variables/page/
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct ParsedDocument {
     /// Document title from frontmatter or filename
     pub title: String,
@@ -146,4 +170,13 @@ pub struct ParsedDocument {
     /// Excerpt or summary of the content
     #[allow(dead_code)]
     pub excerpt: String,
+    /// URL-safe slug identifier (auto-generated from title/filename)
+    /// Following Hugo slug conventions
+    pub slug: String,
+    /// Complete URL with depth-aware path generation
+    /// Following Jekyll permalink patterns
+    pub permalink: String,
+    /// Preferred display title (H1 > frontmatter.title > filename)
+    /// Following Eleventy computed data patterns
+    pub display_title: String,
 }

@@ -1,4 +1,4 @@
-## Architecture
+# architecture
 
 ```
 Local files → moss → Static site → Your infrastructure
@@ -11,8 +11,6 @@ Local files → moss → Static site → Your infrastructure
 **moss** - Tauri app, lives in menu bar, compiles and deploys  
 **Spore** - Optional ActivityPub/WebMention server  
 **Lichen** - JavaScript widget for comments on any static site
-
-# How moss Works
 
 ## System Overview
 
@@ -143,6 +141,7 @@ moss works with existing static site generators rather than replacing them:
 ✅ **Currently Implemented:** moss uses a unified Rust-based static site generator with all functionality embedded in a single binary:
 
 **Content Processing**
+
 - Markdown parsing with pulldown-cmark
 - Frontmatter extraction with gray_matter
 - Automatic project structure detection
@@ -150,12 +149,14 @@ moss works with existing static site generators rather than replacing them:
 - Responsive HTML generation
 
 **Local Development Server**
+
 - Axum-based HTTP server on port 8080
 - Automatic port detection and fallback
 - Static file serving with proper headers
 - Live preview during development
 
 **System Integration**
+
 - macOS Finder Services integration
 - Menu bar tray icon presence
 - Deep link handling (moss:// protocol)
@@ -166,12 +167,14 @@ moss works with existing static site generators rather than replacing them:
 📋 **Planned for Phase 1-2:** Transition to plugin-based architecture:
 
 **Plugin System Foundation**
+
 - Process isolation for security and stability
 - JSON-RPC protocol for language-agnostic plugins
 - Manifest system for capabilities and dependencies
 - Zero-configuration auto-installation
 
 **Planned Plugin Types**
+
 - **SSG Plugins**: Jekyll, Hugo, Zola, Eleventy support
 - **Theme System**: Visual theme browser and marketplace
 - **Publishing**: moss.pub, GitHub Pages, Netlify, Vercel
@@ -179,6 +182,7 @@ moss works with existing static site generators rather than replacing them:
 - **Content Enhancement**: Syntax highlighting, SEO, analytics
 
 **Migration Strategy**
+
 - Current Rust SSG becomes first "bundled plugin"
 - Gradual extraction of features into discrete plugins
 - Maintain backward compatibility throughout transition
@@ -214,6 +218,7 @@ moss works with existing static site generators rather than replacing them:
 ### Compilation Workflow
 
 ✅ **Current Phase 0 Implementation:**
+
 ```
 1. Folder Scan          → Recursively analyze directory structure
 2. Content Detection    → Identify markdown files, images, and homepage

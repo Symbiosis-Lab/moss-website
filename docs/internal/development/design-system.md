@@ -140,25 +140,54 @@ max-width: calc(var(--width) + 2 * var(--padding) - var(--gap));
 - Each uses platform brand colors and official icons
 - Auto-expands/contracts based on active integrations
 
-### Interaction Specifications
+### Right Panel Architecture
 
-**Magnetic Positioning Implementation**
-- Update satellite positions on `appWindow.onMoved()` event
-- Recalculate positions using preview window bounds
-- Smooth transition: `transition: all 150ms ease-out`
-- Maximum update frequency: 60fps to prevent performance issues
+**Immersive Full-Screen Preview**
+```
+┌─────────────────────────────────────────────┐
+│  moss Preview - Full Screen               ▼ │ ← Minimal title bar  
+├─────────────────────────────────────────┬─┐ │
+│                                         │●│ │ ← Right panel (collapsible)
+│     SACRED PREVIEW CONTENT              │●│ │   ● Publish controls
+│     (Immersive, distraction-free)       │●│ │   ● Plugin actions
+│                                         │●│ │   ● Settings  
+│                                         │ │ │
+│                                         │ │ │
+└─────────────────────────────────────────┴─┘ │
+```
 
-**Progressive Disclosure Rules**
-- Show max 3 controls in top zone by default
-- Additional controls via context menu on Settings button  
-- Show max 5 platforms in right zone initially
-- Scroll/paginate for additional syndication targets
+**Panel Interaction Patterns**
+- Auto-hide after 3 seconds of inactivity for immersion
+- Reveal on hover near right edge (20px trigger zone)  
+- Persistent during active operations (modals, loading states)
+- Smooth slide transitions: `transform: translateX()` over `150ms ease-out`
+- Panel width: `280px` (optimized for tool controls)
 
-**Animation Specifications**
-- Hover scale: `transform: scale(1.1)` over `100ms ease-out`
-- Click feedback: `transform: scale(0.95)` for `50ms`, then return
-- Loading states: Subtle rotation animation at `1 revolution per 2 seconds`
-- Success flash: Brief green border `#4CAF50` for `300ms`
+**Panel Sections Design**
+```
+┌─ Right Panel (280px) ─┐
+│  ┌─ Publish ▼ ────┐   │ ← Collapsible section
+│  │  ● Setup Git   │   │   (60px circular buttons)
+│  │  ● Connect     │   │
+│  │  ● Deploy      │   │
+│  └────────────────┘   │
+│  ┌─ Plugins ▼ ────┐   │
+│  │  ● Theme       │   │ ← Plugin-contributed actions
+│  │  ● Export      │   │   (50px circular buttons)  
+│  │  ● Analytics   │   │
+│  └────────────────┘   │
+│  ┌─ Settings ▼ ───┐   │
+│  │  ● Dark Mode   │   │ ← System preferences
+│  │  ● Shortcuts   │   │   (45px circular buttons)
+│  └────────────────┘   │
+└────────────────────────┘
+```
+
+**Keyboard Shortcuts**
+- `Cmd+Shift+P` (macOS) / `Ctrl+Shift+P` (Win/Linux): Command palette
+- `Cmd+/` / `Ctrl+/`: Toggle right panel visibility
+- `Cmd+Enter` / `Ctrl+Enter`: Execute primary publish action
+- `Escape`: Hide panel or close modal dialogs
 
 ## Visual Hierarchy Implementation
 
@@ -220,25 +249,120 @@ max-width: calc(var(--width) + 2 * var(--padding) - var(--gap));
 - **Window decorations**: Standard decorations for accessibility
 - **Theme neutrality**: Avoid GTK/Qt specific styling
 
-## Plugin Integration Guidelines
+## Smart Publish Button Design Specifications
 
-### Plugin Control Standards
-- **Shape requirement**: All controls must be circular, no exceptions
-- **Size tiers**: Choose from `60px` (primary), `50px` (secondary), `45px` (platform), `40px` (utility)
-- **Icon guidelines**: 24px icon centered in control, use platform official icons where available
-- **Color freedom**: Use platform brand colors, but ensure 3:1 contrast ratio minimum
+### Button State Visual Design
+Following the circular action metaphor, the publish button transforms based on git detection:
 
-### Zone Assignment Rules
-- **Top zone plugins**: Website functionality (themes, settings, export)
-- **Right zone plugins**: Syndication and sharing (social platforms, newsletters)
-- **Priority system**: Core plugins take precedence, others accessible via "More" control
-- **Maximum density**: 3 in top zone, 5 in right zone before scrolling
+```
+┌─ Setup Git ─┐    ┌─ Connect GitHub ─┐    ┌─ Publish ─┐
+│      ⚙️      │ →  │        🔗        │ →  │    🚀    │
+│   (60px)    │    │     (60px)      │    │  (60px)  │
+│ #6B7280     │    │    #2E7D32     │    │ #2E7D32  │
+└─────────────┘    └─────────────────┘    └──────────┘
+```
 
-### Implementation Requirements  
-- **Hover states**: Required for all interactive elements
-- **Loading states**: Must provide visual feedback during async operations
-- **Error handling**: Use standard error flash animation pattern
-- **No content interference**: Plugins cannot modify main preview window content
+### State-Based Color Coding
+- **Setup Git**: System gray `#6B7280` - indicates preparation needed
+- **Connect GitHub**: moss green `#2E7D32` - ready for configuration  
+- **Publish**: moss green `#2E7D32` - ready for action
+- **Published**: Success green `#4CAF50` with checkmark icon
+
+### Interactive Feedback
+- **Hover**: Scale to `transform: scale(1.1)` with 100ms ease-out
+- **Click**: Scale to `transform: scale(0.95)` for 50ms, then return
+- **Loading**: Rotation animation at 1 revolution per 2 seconds
+- **Success**: Brief flash to `#4CAF50` border for 300ms
+
+### Repository Setup Modal
+
+#### Modal Specifications
+- **Size**: `400px × 280px` (compact footprint)
+- **Position**: Centered over preview window
+- **Background**: `rgba(0,0,0,0.4)` overlay with backdrop blur
+- **Border radius**: `12px` matching system aesthetics
+- **Shadow**: `0 8px 32px rgba(0,0,0,0.24)`
+
+#### Form Layout
+```
+┌─── Connect to GitHub ──────────────────┐
+│                                        │
+│  Repository name: [my-awesome-blog  ]  │ ← Pre-filled with folder name
+│                                        │
+│  ☐ Make repository public             │ ← Unchecked by default (safe)
+│                                        │
+│  ☐ Enable GitHub Pages                │ ← Checked by default
+│                                        │
+│              [Cancel]  [Create & Publish]│
+│                        ← moss green    │
+└────────────────────────────────────────┘
+```
+
+#### Form Validation
+- **Repository name**: Auto-sanitized (spaces→hyphens, lowercase)
+- **Duplicate names**: Suggest alternatives with incremental numbers
+- **Invalid characters**: Real-time correction with visual feedback
+- **Empty name**: Disabled submit button until valid name entered
+
+## Right Panel Plugin Architecture
+
+### Plugin Registration Pattern
+Plugins register actions in specific panel sections:
+
+```rust
+trait PanelPlugin {
+    fn section(&self) -> PanelSection; // Publish, Plugins, or Settings
+    fn get_action_button(&self) -> ActionButton;
+    fn get_command_palette_entry(&self) -> CommandEntry;
+    fn execute_action(&self, context: &PreviewContext) -> Result<String, String>;
+}
+
+enum PanelSection {
+    Publish,   // Core publishing workflow (GitHub, Netlify, etc.)
+    Plugins,   // Content tools (themes, export, analytics)
+    Settings,  // App preferences (dark mode, shortcuts)
+}
+```
+
+### Section Design Standards
+
+**Publish Section (Priority 1)**
+- Reserved for deployment platforms (GitHub Pages, Netlify, Vercel)
+- 60px circular buttons with platform brand colors
+- Smart state detection (Setup → Connect → Deploy → Published)
+- Maximum 3 buttons before "More" overflow menu
+
+**Plugins Section (Priority 2)**  
+- Content manipulation tools (themes, export formats, SEO)
+- 50px circular buttons with functional icons
+- Grouped by related functionality with section dividers
+- Maximum 5 buttons before scrolling
+
+**Settings Section (Priority 3)**
+- App-wide preferences and configuration
+- 45px circular buttons with system-style icons
+- Toggle states for boolean preferences (dark mode, auto-save)
+- Always at bottom of panel
+
+### Collapsible Section Behavior
+- **Auto-collapse**: Sections with >3 items auto-collapse after 5 seconds
+- **Smart persistence**: Active sections stay expanded during operations
+- **State memory**: User collapse preferences saved per project
+- **Visual hierarchy**: Expanded sections have subtle background tint
+
+### Command Palette Integration
+All plugin actions must be accessible via command palette:
+- **Search by name**: Type action name for fuzzy matching
+- **Search by section**: Prefix with "Publish:", "Plugin:", or "Settings:"
+- **Keyboard shortcuts**: Custom shortcuts assignable to any action
+- **Recent actions**: Most used actions appear at top
+
+### Plugin Visual Standards
+- **Consistent icons**: 24px centered icons, preferably from SF Symbols or Feather
+- **Hover feedback**: Scale(1.1) with 100ms ease-out transition
+- **Loading states**: Subtle rotation animation during async operations  
+- **Status indication**: Badge icons for success/error/warning states
+- **Brand colors**: Platform colors allowed but must meet 3:1 contrast ratio
 
 ---
 

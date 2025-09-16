@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{title} - {site_name}</title>
+    <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+    <header>
+        <nav class="main-nav container">
+            <div class="nav-content">
+                <div class="nav-left">
+                    <a href="../" class="site-name">{site_name}</a>
+                </div>
+                <div class="nav-right">
+                    <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle dark mode">◐</button>
+                </div>
+            </div>
+        </nav>
+    </header>
+    
+    <div class="page-wrapper">
+        <div class="container">
+            <div class="main-content">
+                <article>
+                    <h1>{title}</h1>
+                    <div class="article-meta">
+                        <time datetime="{date}">{formatted_date}</time>
+                    </div>
+                    {content}
+                </article>
+            </div>
+        </div>
+    </div>
+    
+    <script src="../js/theme.js"></script>
+</body>
+</html>

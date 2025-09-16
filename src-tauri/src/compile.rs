@@ -16,12 +16,13 @@
 
 pub mod analysis;
 pub mod generator; 
+pub mod navigation;
 pub mod server;
 
 // Re-export public functions for backward compatibility
 pub use analysis::scan_folder;
 pub use generator::generate_static_site;
-pub use server::start_preview_server;
+pub use server::{start_preview_server, stop_preview_server};
 
 #[cfg(test)]
 pub use analysis::{detect_homepage_file, detect_content_folders, detect_project_type_from_content};
@@ -29,7 +30,7 @@ pub use analysis::{detect_homepage_file, detect_content_folders, detect_project_
 use crate::types::*;
 use std::path::Path;
 use std::fs;
-use tauri::Manager;
+use tauri::{Manager, Emitter};
 
 /// Recursively copies a directory and all its contents
 fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<(), String> {
@@ -61,10 +62,10 @@ fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<(), Stri
     Ok(())
 }
 
-/// Compiles a folder into a static website with optional server startup.
+
+/// Synchronous compilation function for CLI usage.
 /// 
-/// This is the unified compilation function used by both CLI and GUI modes.
-/// It generates the static site files and optionally starts a preview server.
+/// This is a blocking compilation function for CLI usage without frontend communication.
 /// 
 /// # Arguments
 /// * `folder_path` - Absolute path to the folder containing website content
@@ -73,12 +74,124 @@ fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<(), Stri
 /// # Returns
 /// * `Ok(String)` - Success message with compilation summary (and server info if started)
 /// * `Err(String)` - Error message describing what went wrong
+pub fn compile_folder_sync(folder_path: String, auto_serve: Option<bool>) -> Result<String, String> {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        // Replicate compile_folder logic but without channel support for CLI usage
+        let auto_serve = auto_serve.unwrap_or(false);
+        if folder_path.is_empty() {
+            return Err("Empty folder path provided".to_string());
+        }
+        
+        // Scan folder for content suitable for compilation
+        let project_structure = scan_folder(&folder_path)?;
+        
+        // Basic validation - ensure we have some content to compile
+        if project_structure.total_files == 0 {
+            return Err("No files found in the specified folder".to_string());
+        }
+        
+        // Generate a simple site identifier based on folder name
+        let folder_name = Path::new(&folder_path)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("unnamed-site");
+        
+        // Generate static site from scanned files
+        let site_result = generate_static_site(&folder_path, &project_structure)?;
+        
+        // Create compilation strategy message based on detected type
+        let strategy_message = match project_structure.project_type {
+            ProjectType::HomepageWithCollections => "Homepage with organized content collections detected",
+            ProjectType::SimpleFlatSite => "Simple site with all pages in navigation menu",
+            ProjectType::BlogStyleFlatSite => "Blog-style site with essential pages in menu, others listed on homepage",
+        };
+        
+        let homepage_info = if let Some(homepage) = &project_structure.homepage_file {
+            format!(" (Homepage: {})", homepage)
+        } else {
+            String::new()
+        };
+        
+        let base_message = format!(
+            "📁 '{}': {} files scanned. {} {}. Content folders: {:?}. Site generated at {}",
+            folder_name,
+            project_structure.total_files,
+            strategy_message,
+            homepage_info,
+            project_structure.content_folders,
+            site_result.output_path
+        );
+
+        // Optionally start preview server
+        if auto_serve {
+            let port = start_preview_server(&site_result.output_path).await?;
+            let preview_url = format!("http://localhost:{}", port);
+            Ok(format!("{}\n🌐 Preview server ready! Access at {}", base_message, preview_url))
+        } else {
+            Ok(base_message)
+        }
+    })
+}
+
+/// Tauri command for folder compilation with real-time progress channel.
+/// 
+/// This function handles GUI compilation with real-time progress updates sent
+/// through a Tauri channel. It performs folder scanning, site generation, and
+/// preview server startup with detailed progress information.
+/// 
+/// # Arguments
+/// * `app` - Tauri app handle for preview URL communication
+/// * `folder_path` - Absolute path to the folder containing website content
+/// * `auto_serve` - Whether to automatically start preview server after compilation (default: false)
+/// * `on_progress` - Channel for real-time progress updates
+/// 
+/// # Returns
+/// * `Ok(String)` - Success message with compilation summary (and server info if started)
+/// * `Err(String)` - Error message describing what went wrong
 #[tauri::command]
-pub fn compile_folder(folder_path: String, auto_serve: Option<bool>) -> Result<String, String> {
+#[specta::specta]
+pub async fn compile_folder(
+    app: tauri::AppHandle, 
+    folder_path: String, 
+    auto_serve: Option<bool>,
+    on_progress: tauri::ipc::Channel<crate::types::ProgressUpdate>
+) -> Result<String, String> {
+    use crate::types::ProgressUpdate;
+    
     let auto_serve = auto_serve.unwrap_or(false);
     if folder_path.is_empty() {
         return Err("Empty folder path provided".to_string());
     }
+    
+    // Helper function to send progress updates
+    let send_progress = |step: &str, message: &str, percentage: u8, completed: bool| {
+        let update = ProgressUpdate {
+            step: step.to_string(),
+            message: message.to_string(),
+            percentage,
+            completed,
+            url: None,
+            port: None,
+        };
+        let _ = on_progress.send(update);
+    };
+
+    // Helper function to send progress updates with URL and port
+    let send_progress_with_server = |step: &str, message: &str, percentage: u8, completed: bool, url: Option<String>, port: Option<u16>| {
+        let update = ProgressUpdate {
+            step: step.to_string(),
+            message: message.to_string(),
+            percentage,
+            completed,
+            url,
+            port,
+        };
+        let _ = on_progress.send(update);
+    };
+
+    // Step 1: Start scanning
+    send_progress("scanning", "Scanning folder structure...", 10, false);
     
     // Scan folder for content suitable for compilation
     let project_structure = scan_folder(&folder_path)?;
@@ -88,14 +201,26 @@ pub fn compile_folder(folder_path: String, auto_serve: Option<bool>) -> Result<S
         return Err("No files found in the specified folder".to_string());
     }
     
-    // Generate a simple site identifier based on folder name
+    // Step 2: Analysis complete
     let folder_name = Path::new(&folder_path)
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("unnamed-site");
     
+    send_progress(
+        "analyzing", 
+        &format!("Analyzed {} files in '{}'", project_structure.total_files, folder_name), 
+        30, 
+        true
+    );
+    
+    // Step 3: Start generating site
+    send_progress("generating", "Generating static site...", 40, false);
+    
     // Generate static site from scanned files
     let site_result = generate_static_site(&folder_path, &project_structure)?;
+    
+    send_progress("generating", "Static site generated successfully", 70, true);
     
     // Create compilation strategy message based on detected type
     let strategy_message = match project_structure.project_type {
@@ -120,13 +245,117 @@ pub fn compile_folder(folder_path: String, auto_serve: Option<bool>) -> Result<S
         site_result.output_path
     );
 
-    // Optionally start preview server
+    // Optionally start preview server and send preview URL to frontend
     if auto_serve {
-        start_preview_server(&site_result.output_path)?;
-        Ok(format!("{}\n🌐 Preview server started! Access at http://localhost:8080", base_message))
+        // Step 4: Start server
+        send_progress("serving", "Starting preview server...", 80, false);
+        
+        let port = start_preview_server(&site_result.output_path).await?;
+        let preview_url = format!("http://localhost:{}", port);
+        
+        send_progress("serving", &format!("Preview server started on port {}", port), 90, true);
+        
+        // Step 5: Send preview URL to frontend
+        send_progress("ready", "Preparing preview...", 95, false);
+        
+        use crate::preview::commands::update_main_window_preview;
+        
+        let path_buf = std::path::PathBuf::from(&folder_path);
+        let folder_path_str = path_buf.to_string_lossy().to_string();
+        
+        // Send the preview URL update to frontend
+        if let Err(error) = update_main_window_preview(
+            app, 
+            preview_url.clone(), 
+            folder_path_str
+        ).await {
+            eprintln!("⚠️ Failed to update preview: {}", error);
+            // Continue anyway - server is running
+        }
+        
+        // Step 6: Complete
+        send_progress_with_server("ready", "Ready! Site compiled successfully.", 100, true, Some(preview_url.clone()), Some(port));
+        
+        Ok(format!("{}\n🌐 Preview server ready! Access at {}", base_message, preview_url))
     } else {
+        send_progress("complete", "Compilation completed", 100, true);
         Ok(base_message)
     }
+}
+
+/// Compile folder specifically for preview window and update the window when complete
+///
+/// This function is used when no main window exists and a separate preview window is created.
+/// It compiles the folder and then updates the specific preview window with the final preview URL.
+pub async fn compile_folder_async_for_preview_window(
+    app: tauri::AppHandle,
+    folder_path: String,
+    preview_id: String,
+) -> Result<String, String> {
+    use std::path::Path;
+
+    if folder_path.is_empty() {
+        return Err("Empty folder path provided".to_string());
+    }
+
+    // Scan folder for content suitable for compilation
+    let project_structure = scan_folder(&folder_path)?;
+
+    // Basic validation - ensure we have some content to compile
+    if project_structure.total_files == 0 {
+        return Err("No files found in the specified folder".to_string());
+    }
+
+    // Generate a simple site identifier based on folder name
+    let folder_name = Path::new(&folder_path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("unnamed-site");
+
+    // Generate static site from scanned files
+    let site_result = generate_static_site(&folder_path, &project_structure)?;
+
+    // Create compilation strategy message based on detected type
+    let strategy_message = match project_structure.project_type {
+        ProjectType::HomepageWithCollections => "Homepage with organized content collections detected",
+        ProjectType::SimpleFlatSite => "Simple site with all pages in navigation menu",
+        ProjectType::BlogStyleFlatSite => "Blog-style site with essential pages in menu, others listed on homepage",
+    };
+
+    let homepage_info = if let Some(homepage) = &project_structure.homepage_file {
+        format!(" (Homepage: {})", homepage)
+    } else {
+        String::new()
+    };
+
+    let base_message = format!(
+        "✅ Site compiled for {}: {} unique pages generated. Strategy: {}{}",
+        folder_name,
+        site_result.page_count,
+        strategy_message,
+        homepage_info
+    );
+
+    // Start local server with the built site output path
+    let port = start_preview_server(&site_result.output_path).await?;
+    let preview_url = format!("http://localhost:{}", port);
+    println!("🌐 Preview server started at: {}", preview_url);
+
+    // Update the specific preview window with the final URL
+    if let Some(preview_window) = app.get_webview_window(&format!("preview_{}", preview_id)) {
+        if let Err(e) = preview_window.eval(&format!(
+            "window.location.href = '{}';",
+            preview_url
+        )) {
+            eprintln!("⚠️ Failed to update preview window URL: {}", e);
+        } else {
+            println!("✅ Preview window updated with URL: {}", preview_url);
+        }
+    } else {
+        eprintln!("⚠️ Preview window not found for ID: {}", preview_id);
+    }
+
+    Ok(format!("{}\n🌐 Preview server ready! Access at {}", base_message, preview_url))
 }
 
 /// Tauri command to retrieve system diagnostic information.
@@ -153,6 +382,7 @@ pub fn compile_folder(folder_path: String, auto_serve: Option<bool>) -> Result<S
 /// 
 /// This indicates whether right-click folder compilation is available.
 #[tauri::command]
+#[specta::specta]
 pub fn get_system_status(app: tauri::AppHandle) -> Result<SystemInfo, String> {
     let os = std::env::consts::OS.to_string();
     let app_version = app.package_info().version.to_string();
@@ -217,6 +447,7 @@ pub fn get_system_status(app: tauri::AppHandle) -> Result<SystemInfo, String> {
 /// // Returns: "Finder integration installed successfully! Right-click..."
 /// ```
 #[tauri::command]
+#[specta::specta]
 pub fn install_finder_integration() -> Result<String, String> {
     use std::fs;
     use std::path::Path;
@@ -355,8 +586,9 @@ fn save_last_selected_directory(app: &tauri::AppHandle, directory: &str) -> Resu
 /// Uses both activation policy switching AND persistent dialog anchor window
 /// for reliable dialog centering across different macOS system states.
 #[tauri::command]
+#[specta::specta]
 pub async fn compile_with_directory_picker(app: tauri::AppHandle) -> Result<String, String> {
-    use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+    use tauri_plugin_dialog::DialogExt;
 
     // Step 1: Switch to Regular activation policy for proper dialog display
     println!("🔧 Temporarily switching to Regular activation policy for directory picker");
@@ -389,8 +621,7 @@ pub async fn compile_with_directory_picker(app: tauri::AppHandle) -> Result<Stri
         .file()
         .set_parent(&dialog_anchor)  // Use persistent dialog anchor window
         // Note: We use both activation policy switching AND parent window for maximum reliability
-        // The parent window ensures centering even if activation policy switch is delayed
-        // Testing confirmed both mechanisms are required for proper dialog positioning
+        // The parent window ensures centering
         .set_title("Select folder to publish")
         .set_directory(default_path.unwrap_or_else(|| {
             std::env::var("HOME").unwrap_or_else(|_| ".".to_string())
@@ -438,43 +669,60 @@ pub async fn compile_with_directory_picker(app: tauri::AppHandle) -> Result<Stri
                 eprintln!("⚠️ Failed to save directory preference: {}", e);
             }
             
-            // Step 6: Build the site (compile files, start local server)
-            match compile_folder(path_str.clone(), Some(true)) {
-                Ok(result) => {
-                    println!("✅ Build completed: {}", result);
-                    
-                    // Step 7: Open preview window pointing to local server
-                    use crate::preview;
-                    
-                    let preview_url = preview::build_preview_url("http://localhost:8080", &path_buf);
-                    let state = preview::PreviewState::new(path_buf.clone(), preview_url);
-                    
-                    if let Err(error) = preview::create_preview_window(&app, state.clone(), None) {
-                        return Err(format!("Build succeeded but preview failed: {}", error));
+            // Step 6: Create main window before compilation (so preview URL can be sent to it)
+            if app.get_webview_window("main").is_none() {
+                // Window doesn't exist, create it (similar to Settings menu logic)
+                let window_result = tauri::WebviewWindowBuilder::new(
+                    &app,
+                    "main",
+                    tauri::WebviewUrl::App("index.html".into())
+                )
+                .title("moss")
+                .inner_size(1200.0, 800.0)
+                .resizable(true)
+                .center()
+                .build();
+                
+                match window_result {
+                    Ok(window) => {
+                        let window_clone = window.clone();
+                        // Set up window event handler for close behavior
+                        window.on_window_event(move |event| {
+                            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                                // Override default close behavior - hide instead of quit
+                                api.prevent_close();
+                                let _ = window_clone.hide();
+                            }
+                        });
+                        let _ = window.show();
+                        let _ = window.set_focus();
                     }
-                    
-                    // Add to manager if available
-                    if let Some(manager) = app.try_state::<crate::preview::PreviewWindowManager>() {
-                        manager.add_window(state);
+                    Err(e) => {
+                        return Err(format!("Failed to create main window: {}", e));
                     }
-                    
-                    // Keep dock icon visible while preview window is open
-                    // Preview window close event will handle restoring Accessory mode
-                    Ok(format!("Publishing {} - preview window opening", path_buf.file_name().unwrap_or_default().to_string_lossy()))
-                },
-                Err(error) => {
-                    // Show error dialog to user (using main window as parent since we have Regular policy)
-                    let _ = app
-                        .dialog()
-                        .message(format!("Failed to build site: {}", error))
-                        .kind(MessageDialogKind::Error)
-                        .title("Build Error")
-                        .blocking_show();
-                    
-                    // Restore Accessory mode after error (no preview window created)
-                    restore_accessory_mode(&app).await;
-                    Err(format!("Build failed: {}", error))
                 }
+            } else {
+                // Window exists, just show it
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+            
+            // Step 7: Send "ready for compile" event to frontend
+            if let Some(window) = app.get_webview_window("main") {
+                let payload = serde_json::json!({
+                    "folder_path": path_str,
+                    "auto_serve": true
+                });
+                println!("🔧 Emitting ready-for-compile event: {:?}", payload);
+
+                let emit_result = window.emit("ready-for-compile", payload);
+                println!("🔧 Event emit result: {:?}", emit_result);
+
+                Ok(format!("Directory selected: {}", path_buf.file_name().unwrap_or_default().to_string_lossy()))
+            } else {
+                Err("Main window not found".to_string())
             }
         },
         None => {

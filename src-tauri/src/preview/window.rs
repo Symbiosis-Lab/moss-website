@@ -74,9 +74,16 @@ pub fn create_preview_window(
     let config = config.unwrap_or_default();
     let window_id = format!("preview_{}", state.id);
     
-    // Load the preview URL directly
-    let window_url = WebviewUrl::External(state.url.parse()
-        .map_err(|e| format!("Invalid preview URL: {}", e))?);
+    // Load the preview URL if available, otherwise load a loading page
+    let window_url = if let Some(url) = state.get_preview_url() {
+        WebviewUrl::External(url.parse()
+            .map_err(|e| format!("Invalid preview URL: {}", e))?)
+    } else {
+        // Create a simple loading page if no server URL is available yet
+        let loading_html = "data:text/html,<html><body style='display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;'>🌿 Loading preview...</body></html>";
+        WebviewUrl::External(loading_html.parse()
+            .map_err(|e| format!("Invalid loading page URL: {}", e))?)
+    };
 
     let mut window_builder = WebviewWindowBuilder::new(app, &window_id, window_url)
         .decorations(true)
@@ -94,13 +101,24 @@ pub fn create_preview_window(
         .build()
         .map_err(|e| format!("Failed to create preview window: {}", e))?;
 
-    // Add window close event handler to restore Accessory mode
+    // Add window close event handler to restore Accessory mode and stop server
     // When preview window closes, hide dock icon and return to menu bar only
     let app_handle = app.clone();
+    let preview_state = state.clone();
     window.on_window_event(move |event| {
         if let tauri::WindowEvent::Destroyed = event {
-            println!("🔧 Preview window closed - restoring Accessory activation policy");
-            
+            println!("🔧 Preview window closed - cleaning up resources");
+
+            // Stop the preview server if one is running
+            if let Some(server_port) = preview_state.server_port {
+                use crate::compile::stop_preview_server;
+                if let Err(e) = stop_preview_server(server_port) {
+                    eprintln!("⚠️ Failed to stop preview server on port {}: {}", server_port, e);
+                } else {
+                    println!("🔧 Preview server stopped on port {}", server_port);
+                }
+            }
+
             // Restore Accessory mode to hide dock icon
             #[cfg(target_os = "macos")]
             {
@@ -137,10 +155,7 @@ mod tests {
     #[test]
     fn test_preview_window_manager_add_get() {
         let manager = PreviewWindowManager::new();
-        let state = PreviewState::new(
-            PathBuf::from("/test"),
-            "http://localhost:8080".to_string()
-        );
+        let state = PreviewState::new(PathBuf::from("/test"));
         let state_id = state.id.clone();
         
         manager.add_window(state);
@@ -174,10 +189,7 @@ mod tests {
     #[test]
     fn test_preview_window_manager_update_nonexistent() {
         let manager = PreviewWindowManager::new();
-        let state = PreviewState::new(
-            PathBuf::from("/test"),
-            "http://localhost:8080".to_string()
-        );
+        let state = PreviewState::new(PathBuf::from("/test"));
         
         let result = manager.update_window("nonexistent", state);
         assert!(result.is_err());
@@ -187,10 +199,7 @@ mod tests {
     #[test]
     fn test_preview_window_manager_remove() {
         let manager = PreviewWindowManager::new();
-        let state = PreviewState::new(
-            PathBuf::from("/test"),
-            "http://localhost:8080".to_string()
-        );
+        let state = PreviewState::new(PathBuf::from("/test"));
         let state_id = state.id.clone();
         
         manager.add_window(state);

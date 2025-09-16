@@ -3,9 +3,12 @@
 //! Provides the backend API for preview window operations including
 //! window creation, publishing, editing, and syndication.
 
-use crate::preview::{PreviewState, PreviewWindowManager, build_preview_url, create_preview_window, close_preview_window};
+use crate::preview::{PreviewState, PreviewWindowManager, create_preview_window, close_preview_window};
+use crate::preview::git::{create_github_repo_and_remote, sanitize_repo_name};
+use crate::preview::github::deploy_to_github_pages;
+use crate::preview::state::PublishButtonState;
 use std::path::PathBuf;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, State, Manager, Emitter};
 
 /// Global state for preview window management
 pub type PreviewManagerState<'a> = State<'a, PreviewWindowManager>;
@@ -48,6 +51,7 @@ pub fn validate_publish_request(state: &PreviewState) -> Result<(), String> {
 
 /// Tauri command: Open preview window for a folder
 #[tauri::command]
+#[specta::specta]
 pub async fn open_preview_window(
     app: AppHandle,
     manager: PreviewManagerState<'_>,
@@ -63,11 +67,8 @@ pub async fn open_preview_window(
         return Err("Path is not a directory".to_string());
     }
     
-    // Build preview URL (assuming local server is running)
-    let preview_url = build_preview_url("http://localhost:8080", &path);
-    
-    // Create preview state
-    let state = PreviewState::new(path, preview_url);
+    // Create preview state (server URL will be set later when server starts)
+    let state = PreviewState::new(path);
     let preview_id = state.id.clone();
     
     // Create the window
@@ -80,10 +81,11 @@ pub async fn open_preview_window(
 }
 
 /// Tauri command: Publish content from preview window to hosting platform
-/// 
+///
 /// This handles the "Publish" step (upload to host), not the "Build" step.
 /// The site should already be built and preview server running when this is called.
 #[tauri::command]
+#[specta::specta]
 pub async fn publish_from_preview(
     manager: PreviewManagerState<'_>,
     preview_id: String,
@@ -95,35 +97,120 @@ pub async fn publish_from_preview(
     // Validate publish request
     validate_publish_request(&state)?;
     
-    // TODO: Implement actual deployment to hosting platforms
-    // For now, just simulate the publish step
-    let platform_name = platform.unwrap_or_else(|| "moss.pub".to_string());
-    
-    // Simulate deployment process
-    // In Phase 1, this will actually deploy to moss.pub or other platforms
-    let site_path = state.folder_path.join(".moss/site");
-    
-    if !site_path.exists() {
-        return Err("Built site not found. Please rebuild the site first.".to_string());
+    // Check current publish button state to determine action
+    match &state.publish_button_state {
+        PublishButtonState::SetupGit => {
+            return Err("Git repository not found. Please set up git first.".to_string());
+        },
+        PublishButtonState::ConnectToGitHub => {
+            return Err("No GitHub remote configured. Please connect to GitHub first.".to_string());
+        },
+        PublishButtonState::Published(url) => {
+            return Err(format!("Already published to: {}", url));
+        },
+        PublishButtonState::Publish => {
+            // Proceed with publishing
+        }
     }
     
-    // Mock deployment success
-    let mock_url = format!("https://{}/sites/{}", platform_name, 
-        state.folder_path.file_name()
-            .unwrap_or_default()
-            .to_string_lossy());
+    // Get GitHub remote information
+    let git_remote = state.git_remote.as_ref()
+        .ok_or("No git remote configured")?;
     
-    // Update state to mark as published
-    state.mark_published(&platform_name);
+    if !git_remote.is_github {
+        return Err("Only GitHub repositories are currently supported".to_string());
+    }
     
-    // Update stored state
-    manager.update_window(&preview_id, state)?;
+    // Deploy to GitHub Pages
+    match deploy_to_github_pages(&state.folder_path, git_remote).await {
+        Ok(pages_url) => {
+            // Update state to mark as published
+            state.mark_published("GitHub Pages");
+            state.publish_button_state = PublishButtonState::Published(pages_url.clone());
+            
+            // Update stored state
+            manager.update_window(&preview_id, state)?;
+            
+            Ok(format!("Published to GitHub Pages: {}", pages_url))
+        },
+        Err(error) => Err(format!("Failed to publish to GitHub Pages: {}", error))
+    }
+}
+
+/// Tauri command: Setup GitHub repository and configure remote
+///
+/// Creates a new GitHub repository and configures it as the origin remote
+/// for the project. This handles the "Connect to GitHub" button action.
+#[tauri::command]
+#[specta::specta]
+pub async fn setup_github_repository(
+    manager: PreviewManagerState<'_>,
+    preview_id: String,
+    repo_name: String,
+    is_public: bool,
+    github_token: String,
+) -> Result<String, String> {
+    let mut state = manager.get_window(&preview_id)
+        .ok_or("Preview window not found")?;
     
-    Ok(format!("Published to {}: {}", platform_name, mock_url))
+    // Validate inputs
+    if repo_name.trim().is_empty() {
+        return Err("Repository name cannot be empty".to_string());
+    }
+    
+    let sanitized_name = sanitize_repo_name(&repo_name);
+    if sanitized_name != repo_name {
+        return Err(format!("Repository name '{}' contains invalid characters. Suggested name: '{}'", repo_name, sanitized_name));
+    }
+    
+    // Create GitHub repository and set up remote
+    match create_github_repo_and_remote(&state.folder_path, &repo_name, is_public, &github_token).await {
+        Ok(git_remote) => {
+            // Update state with new git remote info
+            state.git_remote = Some(git_remote.clone());
+            state.refresh_publish_state();
+            
+            // Store updated state
+            manager.update_window(&preview_id, state)?;
+            
+            let visibility = if is_public { "public" } else { "private" };
+            Ok(format!("Created {} repository: {}", visibility, git_remote.url))
+        },
+        Err(error) => Err(format!("Failed to create GitHub repository: {}", error))
+    }
+}
+
+/// Tauri command: Refresh publish button state
+///
+/// Re-checks git configuration and updates the publish button state.
+/// Useful after external git operations or manual git setup.
+#[tauri::command]
+#[specta::specta]
+pub async fn refresh_publish_state(
+    manager: PreviewManagerState<'_>,
+    preview_id: String,
+) -> Result<String, String> {
+    let mut state = manager.get_window(&preview_id)
+        .ok_or("Preview window not found")?;
+    
+    state.refresh_publish_state();
+    manager.update_window(&preview_id, state.clone())?;
+    
+    let state_description = match state.publish_button_state {
+        crate::preview::state::PublishButtonState::SetupGit => "No git repository found",
+        crate::preview::state::PublishButtonState::ConnectToGitHub => "Git repository found, no GitHub remote",
+        crate::preview::state::PublishButtonState::Publish => "Ready to publish to GitHub Pages",
+        crate::preview::state::PublishButtonState::Published(ref url) => {
+            return Ok(format!("Already published: {}", url));
+        }
+    };
+    
+    Ok(state_description.to_string())
 }
 
 /// Tauri command: Open folder in system editor
 #[tauri::command]
+#[specta::specta]
 pub async fn open_editor_from_preview(
     manager: PreviewManagerState<'_>,
     preview_id: String,
@@ -167,6 +254,7 @@ pub async fn open_editor_from_preview(
 
 /// Tauri command: Add syndication target to preview
 #[tauri::command]
+#[specta::specta]
 pub async fn add_syndication_target(
     manager: PreviewManagerState<'_>,
     preview_id: String,
@@ -183,6 +271,7 @@ pub async fn add_syndication_target(
 
 /// Tauri command: Remove syndication target from preview
 #[tauri::command]
+#[specta::specta]
 pub async fn remove_syndication_target(
     manager: PreviewManagerState<'_>,
     preview_id: String,
@@ -201,6 +290,7 @@ pub async fn remove_syndication_target(
 
 /// Tauri command: Get preview window state
 #[tauri::command]
+#[specta::specta]
 pub async fn get_preview_state(
     manager: PreviewManagerState<'_>,
     preview_id: String,
@@ -211,6 +301,7 @@ pub async fn get_preview_state(
 
 /// Tauri command: Close preview window
 #[tauri::command]
+#[specta::specta]
 pub async fn close_preview_window_cmd(
     app: AppHandle,
     manager: PreviewManagerState<'_>,
@@ -227,6 +318,27 @@ pub async fn close_preview_window_cmd(
     }
 }
 
+/// Update the iframe source in the main window instead of creating separate preview windows
+#[tauri::command]
+#[specta::specta]
+pub async fn update_main_window_preview(
+    app: AppHandle,
+    preview_url: String,
+    folder_path: String,
+) -> Result<String, String> {
+    // Get the main window
+    let main_window = app.get_webview_window("main")
+        .ok_or("Main window not found")?;
+    
+    // Emit an event to the frontend with the new preview URL
+    main_window.emit("preview-url-updated", serde_json::json!({
+        "url": preview_url,
+        "folder_path": folder_path
+    })).map_err(|e| format!("Failed to emit preview update event: {}", e))?;
+    
+    Ok("Preview updated in main window".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -239,10 +351,7 @@ mod tests {
         std::fs::create_dir_all(&site_dir).unwrap();
         std::fs::write(site_dir.join("index.html"), "test content").unwrap();
         
-        let mut state = PreviewState::new(
-            temp_dir.clone(),
-            "http://localhost:8080".to_string()
-        );
+        let mut state = PreviewState::new(temp_dir.clone());
         
         // First publish should be allowed (site exists and not yet published)
         assert!(validate_publish_request(&state).is_ok());
@@ -265,10 +374,7 @@ mod tests {
         let temp_dir = std::env::temp_dir().join("moss_test_no_site");
         std::fs::create_dir_all(&temp_dir).unwrap();
         
-        let state = PreviewState::new(
-            temp_dir.clone(),
-            "http://localhost:8080".to_string()
-        );
+        let state = PreviewState::new(temp_dir.clone());
         
         let result = validate_publish_request(&state);
         assert!(result.is_err());
