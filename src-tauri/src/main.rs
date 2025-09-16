@@ -22,23 +22,25 @@
 mod types;
 mod compile;
 mod preview;
+mod system;
 
 #[cfg(debug_assertions)]
 const REGENERATE_TYPES: bool = true;
 
 use compile::{
     compile_folder,
-    compile_folder_sync,
-    compile_folder_async_for_preview_window,
+    compile_folder_sync
+};
+use system::{
     compile_with_directory_picker,
     get_system_status,
-    install_finder_integration
+    install_finder_integration,
+    stop_all_preview_servers
 };
 
-#[cfg(test)]
-use compile::{detect_homepage_file, detect_content_folders, detect_project_type_from_content};
-use preview::{PreviewWindowManager, *, commands::{setup_github_repository, refresh_publish_state, update_main_window_preview}};
 use tauri::Manager;
+use std::sync::Mutex;
+use types::ServerState;
 
 
 /// Main application entry point for Tauri desktop and mobile platforms.
@@ -132,34 +134,19 @@ fn handle_deep_link_url(app: &tauri::AppHandle, url: &str) {
         // No main window, use the original separate preview window approach
         println!("🔧 No main window, using separate preview window flow");
 
-        // Step 1: Create preview window first with loading state
-        let state = preview::PreviewState::new(path.clone());
-        let preview_id = state.id.clone();
+        // Note: Deep link preview window creation is no longer supported
+        // All deep links now use the main window flow
+        println!("⚠️ Deep link preview windows not supported, redirecting to folder picker");
 
-        if let Err(error) = preview::create_preview_window(app, state.clone(), None) {
-            eprintln!("❌ Failed to create preview window: {}", error);
-            return;
-        }
-
-        // Add to manager if available
-        if let Some(manager) = app.try_state::<PreviewWindowManager>() {
-            manager.add_window(state);
-            println!("✅ Preview window created, starting compilation...");
-        } else {
-            eprintln!("❌ Preview window manager not available");
-            return;
-        }
-
-        // Step 2: Start async compilation that will update the preview window when complete
+        // Instead of creating a preview window, trigger the folder picker flow
         let app_handle = app.clone();
-        let folder_path_clone = folder_path.clone();
         tokio::spawn(async move {
-            match compile_folder_async_for_preview_window(app_handle, folder_path_clone, preview_id).await {
+            match compile_with_directory_picker(app_handle).await {
                 Ok(result) => {
-                    println!("✅ Async build completed for preview window: {}", result);
+                    println!("✅ Folder picker compilation completed: {}", result);
                 },
                 Err(error) => {
-                    eprintln!("❌ Async build failed for preview window: {}", error);
+                    eprintln!("❌ Folder picker compilation failed: {}", error);
                 }
             }
         });
@@ -193,6 +180,7 @@ pub fn run() {
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             
             // Register deep links at runtime for development mode (Linux/Windows only)
+            // Note: This code is intentionally inactive on macOS - deep links are registered via Info.plist
             #[cfg(any(target_os = "linux", all(debug_assertions, target_os = "windows")))]
             {
                 use tauri_plugin_deep_link::DeepLinkExt;
@@ -209,7 +197,10 @@ pub fn run() {
                     handle_deep_link_url(&app.handle(), arg);
                 }
             }
-            
+
+            // Initialize server state management for tracking active preview servers
+            app.manage(Mutex::new(ServerState::default()));
+
             // Also set up event-based deep link handler for comprehensive coverage
             use tauri_plugin_deep_link::DeepLinkExt;
             let app_handle = app.handle().clone();
@@ -413,25 +404,19 @@ pub fn run() {
 
             Ok(())
         })
-        .manage(PreviewWindowManager::new())
         .invoke_handler(tauri::generate_handler![
             compile_folder,
-            install_finder_integration, 
+            install_finder_integration,
             get_system_status,
-            open_preview_window,
-            publish_from_preview,
-            open_editor_from_preview,
-            add_syndication_target,
-            remove_syndication_target,
-            get_preview_state,
-            close_preview_window_cmd,
             compile_with_directory_picker,
-            setup_github_repository,
-            refresh_publish_state,
-            update_main_window_preview
+            stop_all_preview_servers
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|_app_handle, _event| {
+            // Window-level exit prevention handles the app lifecycle
+            // Menu bar quit uses std::process::exit(0) for clean exit
+        });
 }
 
 #[cfg(debug_assertions)]
@@ -446,17 +431,8 @@ fn generate_typescript_bindings() {
             compile_folder,
             install_finder_integration,
             get_system_status,
-            open_preview_window,
-            publish_from_preview,
-            open_editor_from_preview,
-            add_syndication_target,
-            remove_syndication_target,
-            get_preview_state,
-            close_preview_window_cmd,
             compile_with_directory_picker,
-            setup_github_repository,
-            refresh_publish_state,
-            update_main_window_preview
+            stop_all_preview_servers
         ])
         .events(collect_events![])
         // Add individual types using typ() method

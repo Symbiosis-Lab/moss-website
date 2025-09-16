@@ -117,86 +117,6 @@ async getSystemStatus() : Promise<Result<SystemInfo, string>> {
 }
 },
 /**
- * Tauri command: Open preview window for a folder
- */
-async openPreviewWindow(folderPath: string) : Promise<Result<string, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("open_preview_window", { folderPath }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-/**
- * Tauri command: Publish content from preview window to hosting platform
- * 
- * This handles the "Publish" step (upload to host), not the "Build" step.
- * The site should already be built and preview server running when this is called.
- */
-async publishFromPreview(previewId: string, platform: string | null) : Promise<Result<string, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("publish_from_preview", { previewId, platform }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-/**
- * Tauri command: Open folder in system editor
- */
-async openEditorFromPreview(previewId: string) : Promise<Result<string, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("open_editor_from_preview", { previewId }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-/**
- * Tauri command: Add syndication target to preview
- */
-async addSyndicationTarget(previewId: string, target: string) : Promise<Result<string, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("add_syndication_target", { previewId, target }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-/**
- * Tauri command: Remove syndication target from preview
- */
-async removeSyndicationTarget(previewId: string, target: string) : Promise<Result<string, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("remove_syndication_target", { previewId, target }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-/**
- * Tauri command: Get preview window state
- */
-async getPreviewState(previewId: string) : Promise<Result<PreviewState, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("get_preview_state", { previewId }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-/**
- * Tauri command: Close preview window
- */
-async closePreviewWindowCmd(previewId: string) : Promise<Result<string, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("close_preview_window_cmd", { previewId }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-/**
  * Tauri command for folder compilation with GUI directory picker.
  * 
  * Provides a comprehensive workflow for folder compilation through the GUI:
@@ -236,39 +156,14 @@ async compileWithDirectoryPicker() : Promise<Result<string, string>> {
 }
 },
 /**
- * Tauri command: Setup GitHub repository and configure remote
+ * Tauri command: Stop all active preview servers
  * 
- * Creates a new GitHub repository and configures it as the origin remote
- * for the project. This handles the "Connect to GitHub" button action.
+ * Manually stops all preview servers currently tracked in the application state.
+ * Useful for debugging and manual cleanup when servers are not automatically stopped.
  */
-async setupGithubRepository(previewId: string, repoName: string, isPublic: boolean, githubToken: string) : Promise<Result<string, string>> {
+async stopAllPreviewServers() : Promise<Result<string, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("setup_github_repository", { previewId, repoName, isPublic, githubToken }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-/**
- * Tauri command: Refresh publish button state
- * 
- * Re-checks git configuration and updates the publish button state.
- * Useful after external git operations or manual git setup.
- */
-async refreshPublishState(previewId: string) : Promise<Result<string, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("refresh_publish_state", { previewId }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-/**
- * Update the iframe source in the main window instead of creating separate preview windows
- */
-async updateMainWindowPreview(previewUrl: string, folderPath: string) : Promise<Result<string, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("update_main_window_preview", { previewUrl, folderPath }) };
+    return { status: "ok", data: await TAURI_INVOKE("stop_all_preview_servers") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -495,10 +390,6 @@ percentage: number;
  * Whether this step is completed
  */
 completed: boolean; 
-/**
- * Preview URL when server is ready (optional)
- */
-url: string | null; 
 /**
  * Preview server port when server is ready (optional)
  */

@@ -1,17 +1,13 @@
-//! Tauri commands for preview window functionality
+//! Tauri commands for main window functionality
 //!
-//! Provides the backend API for preview window operations including
-//! window creation, publishing, editing, and syndication.
+//! Provides the backend API for main window operations including
+//! publishing, editing, and syndication.
 
-use crate::preview::{PreviewState, PreviewWindowManager, create_preview_window, close_preview_window};
+use crate::preview::PreviewState;
 use crate::preview::git::{create_github_repo_and_remote, sanitize_repo_name};
 use crate::preview::github::deploy_to_github_pages;
 use crate::preview::state::PublishButtonState;
 use std::path::PathBuf;
-use tauri::{AppHandle, State, Manager, Emitter};
-
-/// Global state for preview window management
-pub type PreviewManagerState<'a> = State<'a, PreviewWindowManager>;
 
 /// Validate and prepare a publish request from preview window
 pub fn validate_publish_request(state: &PreviewState) -> Result<(), String> {
@@ -49,295 +45,90 @@ pub fn validate_publish_request(state: &PreviewState) -> Result<(), String> {
 
 
 
-/// Tauri command: Open preview window for a folder
-#[tauri::command]
-#[specta::specta]
-pub async fn open_preview_window(
-    app: AppHandle,
-    manager: PreviewManagerState<'_>,
-    folder_path: String,
-) -> Result<String, String> {
-    let path = PathBuf::from(&folder_path);
-    
-    if !path.exists() {
-        return Err("Folder does not exist".to_string());
-    }
-    
-    if !path.is_dir() {
-        return Err("Path is not a directory".to_string());
-    }
-    
-    // Create preview state (server URL will be set later when server starts)
-    let state = PreviewState::new(path);
-    let preview_id = state.id.clone();
-    
-    // Create the window
-    let _window_id = create_preview_window(&app, state.clone(), None)?;
-    
-    // Store state in manager
-    manager.add_window(state);
-    
-    Ok(preview_id)
-}
 
-/// Tauri command: Publish content from preview window to hosting platform
+/// Tauri command: Publish content from main window to hosting platform
 ///
 /// This handles the "Publish" step (upload to host), not the "Build" step.
 /// The site should already be built and preview server running when this is called.
+/// Note: This command is currently not used by the folder picker flow but kept for potential future use.
 #[tauri::command]
 #[specta::specta]
 pub async fn publish_from_preview(
-    manager: PreviewManagerState<'_>,
-    preview_id: String,
-    platform: Option<String>,
+    _platform: Option<String>,
 ) -> Result<String, String> {
-    let mut state = manager.get_window(&preview_id)
-        .ok_or("Preview window not found")?;
-    
-    // Validate publish request
-    validate_publish_request(&state)?;
-    
-    // Check current publish button state to determine action
-    match &state.publish_button_state {
-        PublishButtonState::SetupGit => {
-            return Err("Git repository not found. Please set up git first.".to_string());
-        },
-        PublishButtonState::ConnectToGitHub => {
-            return Err("No GitHub remote configured. Please connect to GitHub first.".to_string());
-        },
-        PublishButtonState::Published(url) => {
-            return Err(format!("Already published to: {}", url));
-        },
-        PublishButtonState::Publish => {
-            // Proceed with publishing
-        }
-    }
-    
-    // Get GitHub remote information
-    let git_remote = state.git_remote.as_ref()
-        .ok_or("No git remote configured")?;
-    
-    if !git_remote.is_github {
-        return Err("Only GitHub repositories are currently supported".to_string());
-    }
-    
-    // Deploy to GitHub Pages
-    match deploy_to_github_pages(&state.folder_path, git_remote).await {
-        Ok(pages_url) => {
-            // Update state to mark as published
-            state.mark_published("GitHub Pages");
-            state.publish_button_state = PublishButtonState::Published(pages_url.clone());
-            
-            // Update stored state
-            manager.update_window(&preview_id, state)?;
-            
-            Ok(format!("Published to GitHub Pages: {}", pages_url))
-        },
-        Err(error) => Err(format!("Failed to publish to GitHub Pages: {}", error))
-    }
+    // TODO: Implement publishing for main window flow when needed
+    Err("Publishing not yet implemented for main window flow".to_string())
 }
 
 /// Tauri command: Setup GitHub repository and configure remote
 ///
 /// Creates a new GitHub repository and configures it as the origin remote
 /// for the project. This handles the "Connect to GitHub" button action.
+/// Note: This command is currently not used by the folder picker flow but kept for potential future use.
 #[tauri::command]
 #[specta::specta]
 pub async fn setup_github_repository(
-    manager: PreviewManagerState<'_>,
-    preview_id: String,
-    repo_name: String,
-    is_public: bool,
-    github_token: String,
+    _repo_name: String,
+    _is_public: bool,
+    _github_token: String,
 ) -> Result<String, String> {
-    let mut state = manager.get_window(&preview_id)
-        .ok_or("Preview window not found")?;
-    
-    // Validate inputs
-    if repo_name.trim().is_empty() {
-        return Err("Repository name cannot be empty".to_string());
-    }
-    
-    let sanitized_name = sanitize_repo_name(&repo_name);
-    if sanitized_name != repo_name {
-        return Err(format!("Repository name '{}' contains invalid characters. Suggested name: '{}'", repo_name, sanitized_name));
-    }
-    
-    // Create GitHub repository and set up remote
-    match create_github_repo_and_remote(&state.folder_path, &repo_name, is_public, &github_token).await {
-        Ok(git_remote) => {
-            // Update state with new git remote info
-            state.git_remote = Some(git_remote.clone());
-            state.refresh_publish_state();
-            
-            // Store updated state
-            manager.update_window(&preview_id, state)?;
-            
-            let visibility = if is_public { "public" } else { "private" };
-            Ok(format!("Created {} repository: {}", visibility, git_remote.url))
-        },
-        Err(error) => Err(format!("Failed to create GitHub repository: {}", error))
-    }
+    // TODO: Implement GitHub setup for main window flow when needed
+    Err("GitHub setup not yet implemented for main window flow".to_string())
 }
 
 /// Tauri command: Refresh publish button state
 ///
 /// Re-checks git configuration and updates the publish button state.
 /// Useful after external git operations or manual git setup.
+/// Note: This command is currently not used by the folder picker flow but kept for potential future use.
 #[tauri::command]
 #[specta::specta]
-pub async fn refresh_publish_state(
-    manager: PreviewManagerState<'_>,
-    preview_id: String,
-) -> Result<String, String> {
-    let mut state = manager.get_window(&preview_id)
-        .ok_or("Preview window not found")?;
-    
-    state.refresh_publish_state();
-    manager.update_window(&preview_id, state.clone())?;
-    
-    let state_description = match state.publish_button_state {
-        crate::preview::state::PublishButtonState::SetupGit => "No git repository found",
-        crate::preview::state::PublishButtonState::ConnectToGitHub => "Git repository found, no GitHub remote",
-        crate::preview::state::PublishButtonState::Publish => "Ready to publish to GitHub Pages",
-        crate::preview::state::PublishButtonState::Published(ref url) => {
-            return Ok(format!("Already published: {}", url));
-        }
-    };
-    
-    Ok(state_description.to_string())
+pub async fn refresh_publish_state() -> Result<String, String> {
+    // TODO: Implement state refresh for main window flow when needed
+    Err("State refresh not yet implemented for main window flow".to_string())
 }
 
 /// Tauri command: Open folder in system editor
+/// Note: This command is currently not used by the folder picker flow but kept for potential future use.
 #[tauri::command]
 #[specta::specta]
-pub async fn open_editor_from_preview(
-    manager: PreviewManagerState<'_>,
-    preview_id: String,
-) -> Result<String, String> {
-    let state = manager.get_window(&preview_id)
-        .ok_or("Preview window not found")?;
-    
-    let folder_path = state.get_edit_path();
-    
-    if !folder_path.exists() {
-        return Err("Source folder no longer exists".to_string());
-    }
-    
-    // Open folder in default file manager
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg(&folder_path)
-            .spawn()
-            .map_err(|e| format!("Failed to open folder: {}", e))?;
-    }
-    
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("explorer")
-            .arg(&folder_path)
-            .spawn()
-            .map_err(|e| format!("Failed to open folder: {}", e))?;
-    }
-    
-    #[cfg(target_os = "linux")]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(&folder_path)
-            .spawn()
-            .map_err(|e| format!("Failed to open folder: {}", e))?;
-    }
-    
-    Ok(format!("Opened folder: {}", folder_path.display()))
+pub async fn open_editor_from_preview() -> Result<String, String> {
+    // TODO: Implement folder opening for main window flow when needed
+    Err("Folder opening not yet implemented for main window flow".to_string())
 }
 
 /// Tauri command: Add syndication target to preview
+/// Note: This command is currently not used by the folder picker flow but kept for potential future use.
 #[tauri::command]
 #[specta::specta]
 pub async fn add_syndication_target(
-    manager: PreviewManagerState<'_>,
-    preview_id: String,
-    target: String,
+    _target: String,
 ) -> Result<String, String> {
-    let mut state = manager.get_window(&preview_id)
-        .ok_or("Preview window not found")?;
-    
-    state.add_syndication_target(target.clone())?;
-    manager.update_window(&preview_id, state)?;
-    
-    Ok(format!("Added syndication target: {}", target))
+    // TODO: Implement syndication for main window flow when needed
+    Err("Syndication not yet implemented for main window flow".to_string())
 }
 
 /// Tauri command: Remove syndication target from preview
+/// Note: This command is currently not used by the folder picker flow but kept for potential future use.
 #[tauri::command]
 #[specta::specta]
 pub async fn remove_syndication_target(
-    manager: PreviewManagerState<'_>,
-    preview_id: String,
-    target: String,
+    _target: String,
 ) -> Result<String, String> {
-    let mut state = manager.get_window(&preview_id)
-        .ok_or("Preview window not found")?;
-    
-    if state.remove_syndication_target(&target) {
-        manager.update_window(&preview_id, state)?;
-        Ok(format!("Removed syndication target: {}", target))
-    } else {
-        Err("Syndication target not found".to_string())
-    }
+    // TODO: Implement syndication removal for main window flow when needed
+    Err("Syndication removal not yet implemented for main window flow".to_string())
 }
 
 /// Tauri command: Get preview window state
+/// Note: This command is currently not used by the folder picker flow but kept for potential future use.
 #[tauri::command]
 #[specta::specta]
-pub async fn get_preview_state(
-    manager: PreviewManagerState<'_>,
-    preview_id: String,
-) -> Result<PreviewState, String> {
-    manager.get_window(&preview_id)
-        .ok_or("Preview window not found".to_string())
+pub async fn get_preview_state() -> Result<PreviewState, String> {
+    // TODO: Implement state retrieval for main window flow when needed
+    Err("State retrieval not yet implemented for main window flow".to_string())
 }
 
-/// Tauri command: Close preview window
-#[tauri::command]
-#[specta::specta]
-pub async fn close_preview_window_cmd(
-    app: AppHandle,
-    manager: PreviewManagerState<'_>,
-    preview_id: String,
-) -> Result<String, String> {
-    // Close the window
-    close_preview_window(&app, &preview_id)?;
-    
-    // Remove from manager
-    if manager.remove_window(&preview_id) {
-        Ok("Preview window closed".to_string())
-    } else {
-        Err("Preview window not found".to_string())
-    }
-}
 
-/// Update the iframe source in the main window instead of creating separate preview windows
-#[tauri::command]
-#[specta::specta]
-pub async fn update_main_window_preview(
-    app: AppHandle,
-    preview_url: String,
-    folder_path: String,
-) -> Result<String, String> {
-    // Get the main window
-    let main_window = app.get_webview_window("main")
-        .ok_or("Main window not found")?;
-    
-    // Emit an event to the frontend with the new preview URL
-    main_window.emit("preview-url-updated", serde_json::json!({
-        "url": preview_url,
-        "folder_path": folder_path
-    })).map_err(|e| format!("Failed to emit preview update event: {}", e))?;
-    
-    Ok("Preview updated in main window".to_string())
-}
 
 #[cfg(test)]
 mod tests {

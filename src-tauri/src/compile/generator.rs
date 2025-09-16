@@ -416,7 +416,7 @@ pub fn process_markdown_file(file_path: &str, content: &str) -> Result<ParsedDoc
     })
 }
 
-/// Unified HTML generation function for all page types using new architecture.
+/// Unified HTML generation function for all page types 
 pub fn generate_html(
     doc: Option<&ParsedDocument>, 
     all_docs: &[ParsedDocument], 

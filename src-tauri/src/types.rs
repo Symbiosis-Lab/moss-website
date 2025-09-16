@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
+use std::collections::{HashSet, HashMap};
 
 /// Real-time progress update for compilation process.
 /// 
@@ -17,8 +18,6 @@ pub struct ProgressUpdate {
     pub percentage: u8,
     /// Whether this step is completed
     pub completed: bool,
-    /// Preview URL when server is ready (optional)
-    pub url: Option<String>,
     /// Preview server port when server is ready (optional)
     pub port: Option<u16>,
 }
@@ -179,4 +178,15 @@ pub struct ParsedDocument {
     /// Preferred display title (H1 > frontmatter.title > filename)
     /// Following Eleventy computed data patterns
     pub display_title: String,
+}
+
+/// State management for tracking active preview servers.
+///
+/// Used to track which servers are running for which folders to enable server reuse
+/// and avoid creating duplicate servers for the same content.
+#[derive(Default, Debug)]
+pub struct ServerState {
+    /// Map of folder paths to their running server ports
+    /// Enables server reuse when compiling the same folder multiple times
+    pub active_servers: std::collections::HashMap<String, u16>,
 }

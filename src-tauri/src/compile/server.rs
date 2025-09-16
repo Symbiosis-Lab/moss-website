@@ -9,33 +9,102 @@ use tower_http::services::ServeDir;
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
 use std::path::Path;
+use crate::types::ServerState;
+use std::sync::Mutex;
+use tauri::Manager;
 
 /// Starts a local HTTP preview server for the generated website.
-/// 
+///
 /// Creates a lightweight Axum server to properly serve the static files with correct
 /// HTTP headers, avoiding CORS issues and providing real web server behavior.
-/// 
+/// Supports both CLI mode (no reuse) and GUI mode (with server reuse).
+///
 /// # Arguments
 /// * `site_path` - Path to the generated site directory containing index.html
-/// 
+/// * `app_handle` - Optional Tauri app handle for server reuse (None for CLI mode)
+///
 /// # Returns
 /// * `Ok(u16)` - Successfully started server, returns the port number used
 /// * `Err(String)` - Failed to start server
-/// 
+///
+/// # Server Reuse (GUI Mode)
+/// When `app_handle` is provided:
+/// - Checks if server already exists for the same folder path
+/// - Reuses existing server if it's still responding
+/// - Only creates new server if folder path changes or server is down
+/// - Records new servers in app state for future reuse
+///
+/// # CLI Mode
+/// When `app_handle` is None:
+/// - Creates server directly without state management
+/// - No server reuse logic
+/// - Suitable for command-line usage
+///
 /// # Implementation
 /// - Uses Axum + tower-http for lightweight static file serving
 /// - Finds an available port automatically (starting from 8080)
 /// - Spawns server in background using existing Tokio runtime
 /// - Falls back to thread-based runtime for test environments
 /// - Uses localhost (127.0.0.1) for security
-/// 
+///
 /// # Port Selection
 /// - Tries port 8080 first (consistency with preview window)
 /// - Scans for next available port if 8080 is taken
 /// - Fails if no ports available in range
-pub async fn start_preview_server(site_path: &str) -> Result<u16, String> {
+pub async fn start_preview_server(
+    site_path: &str,
+    app_handle: Option<&tauri::AppHandle>
+) -> Result<u16, String> {
+    // If app handle provided, check for existing server to reuse
+    if let Some(app) = app_handle {
+        let canonical_path = std::fs::canonicalize(site_path)
+            .map_err(|e| format!("Failed to resolve site path: {}", e))?
+            .to_string_lossy()
+            .to_string();
+
+        // Check for existing server
+        let existing_port = if let Some(server_state) = app.try_state::<Mutex<ServerState>>() {
+            if let Ok(state) = server_state.lock() {
+                state.active_servers.get(&canonical_path).copied()
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if let Some(port) = existing_port {
+            // Verify existing server is still responding
+            if verify_server_ready(port).await.is_ok() {
+                println!("🔄 Reusing existing server on port {} for {}", port, canonical_path);
+                return Ok(port);
+            } else {
+                println!("🔧 Existing server on port {} not responding, creating new one", port);
+            }
+        }
+
+        // Create new server
+        let port = create_new_server(site_path).await?;
+
+        // Record new server in state
+        if let Some(server_state) = app.try_state::<Mutex<ServerState>>() {
+            if let Ok(mut state) = server_state.lock() {
+                state.active_servers.insert(canonical_path, port);
+                println!("🔧 Recorded new server on port {} in state", port);
+            }
+        }
+
+        Ok(port)
+    } else {
+        // No app handle - create server directly (CLI mode)
+        create_new_server(site_path).await
+    }
+}
+
+/// Internal function to create a new preview server without state management
+async fn create_new_server(site_path: &str) -> Result<u16, String> {
     let site_path = site_path.to_string();
-    
+
     // === SETUP PHASE ===
     // Check if index.html exists
     let index_path = Path::new(&site_path).join("index.html");

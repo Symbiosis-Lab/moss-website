@@ -17,7 +17,8 @@
     "test:integration": "vitest run integration.test.js",
     "test:backend": "cd src-tauri && source $HOME/.cargo/env && cargo test",
     "test:all": "npm run test:frontend && npm run test:integration && npm run test:backend",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "generate:type": "cd src-tauri && cargo check"
   },
   "devDependencies": {
     "@tauri-apps/api": "2.7.0",
