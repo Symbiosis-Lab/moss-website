@@ -70,25 +70,6 @@ export function getCompileConfig(): { folder_path: string; auto_serve: boolean }
  * Type-safe wrapper for other Tauri commands
  */
 export const TauriCommands = {
-  async setupGithubRepository(
-    repoName: string,
-    description: string,
-    isPrivate: boolean,
-    accessToken: string
-  ) {
-    try {
-      const result = await window.tauriInvoke.setupGithubRepository(
-        repoName,
-        description,
-        isPrivate,
-        accessToken
-      );
-      return result;
-    } catch (error) {
-      console.error("❌ GitHub setup failed:", error);
-      throw error;
-    }
-  },
 
   async getSystemStatus() {
     try {

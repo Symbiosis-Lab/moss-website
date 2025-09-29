@@ -119,7 +119,6 @@ pub fn extract_path_from_deep_link(url: &str) -> Option<String> {
 /// If main window exists, uses that for preview; otherwise creates separate preview window
 fn handle_deep_link_url(app: &tauri::AppHandle, url: &str) {
     if let Some(folder_path) = extract_path_from_deep_link(url) {
-        let path = std::path::PathBuf::from(&folder_path);
         
         // Check if main window exists (user opened settings)
         if let Some(_main_window) = app.get_webview_window("main") {

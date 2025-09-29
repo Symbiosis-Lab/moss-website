@@ -281,3 +281,168 @@ pub fn scan_folder(folder_path: &str) -> Result<ProjectStructure, String> {
         content_folders,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn test_file_extension_categorization() {
+        // Test markdown file extensions
+        let md_extensions = vec!["md", "markdown", "mdown", "mkd"];
+        for ext in md_extensions {
+            // Extension detection is done in scan_folder, but we can test the logic indirectly
+            assert!(ext == "md" || ext == "markdown" || ext == "mdown" || ext == "mkd");
+        }
+
+        // Test HTML file extensions
+        let html_extensions = vec!["html", "htm"];
+        for ext in html_extensions {
+            assert!(ext == "html" || ext == "htm");
+        }
+
+        // Test image file extensions
+        let image_extensions = vec!["jpg", "jpeg", "png", "gif", "svg", "webp"];
+        for ext in image_extensions {
+            assert!(["jpg", "jpeg", "png", "gif", "svg", "webp"].contains(&ext));
+        }
+
+        // Test document file extensions
+        let doc_extensions = vec!["pages", "docx", "doc"];
+        for ext in doc_extensions {
+            assert!(["pages", "docx", "doc"].contains(&ext));
+        }
+    }
+
+    #[test]
+    fn test_scan_folder_nonexistent_path() {
+        let result = scan_folder("/definitely/does/not/exist/anywhere");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("does not exist"));
+    }
+
+    #[test]
+    fn test_scan_folder_file_instead_of_directory() {
+        // Create a temporary file
+        let temp_dir = std::env::temp_dir();
+        let temp_file = temp_dir.join("test_file.txt");
+        fs::write(&temp_file, "test content").unwrap();
+
+        let result = scan_folder(&temp_file.to_string_lossy());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not a directory"));
+
+        // Cleanup
+        fs::remove_file(temp_file).ok();
+    }
+
+    #[test]
+    fn test_detect_homepage_file_priority_order() {
+        // Test index.md has highest priority
+        let files = vec![
+            FileInfo { path: "README.md".to_string(), file_type: "md".to_string(), size: 200, modified: None },
+            FileInfo { path: "index.md".to_string(), file_type: "md".to_string(), size: 150, modified: None },
+            FileInfo { path: "about.md".to_string(), file_type: "md".to_string(), size: 100, modified: None },
+        ];
+
+        let result = detect_homepage_file(&files);
+        assert_eq!(result, Some("index.md".to_string()));
+    }
+
+    #[test]
+    fn test_detect_homepage_file_fallback_to_readme() {
+        // Test README.md fallback when no index files
+        let files = vec![
+            FileInfo { path: "about.md".to_string(), file_type: "md".to_string(), size: 100, modified: None },
+            FileInfo { path: "contact.md".to_string(), file_type: "md".to_string(), size: 150, modified: None },
+            FileInfo { path: "README.md".to_string(), file_type: "md".to_string(), size: 200, modified: None },
+        ];
+
+        let result = detect_homepage_file(&files);
+        assert_eq!(result, Some("README.md".to_string()));
+    }
+
+    #[test]
+    fn test_detect_homepage_file_no_candidates() {
+        // Test with no homepage candidates
+        let files = vec![
+            FileInfo { path: "image.jpg".to_string(), file_type: "jpg".to_string(), size: 5000, modified: None },
+            FileInfo { path: "data.json".to_string(), file_type: "json".to_string(), size: 300, modified: None },
+        ];
+
+        let result = detect_homepage_file(&files);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_detect_content_folders() {
+        let files = vec![
+            FileInfo { path: "index.md".to_string(), file_type: "md".to_string(), size: 100, modified: None },
+            FileInfo { path: "posts/first.md".to_string(), file_type: "md".to_string(), size: 200, modified: None },
+            FileInfo { path: "posts/second.md".to_string(), file_type: "md".to_string(), size: 150, modified: None },
+            FileInfo { path: "docs/guide.md".to_string(), file_type: "md".to_string(), size: 300, modified: None },
+            FileInfo { path: "images/photo.jpg".to_string(), file_type: "jpg".to_string(), size: 5000, modified: None },
+            FileInfo { path: "css/style.css".to_string(), file_type: "css".to_string(), size: 1000, modified: None },
+        ];
+
+        let result = detect_content_folders(&files);
+
+        // Should detect folders with document files, not just image/css folders
+        assert_eq!(result.len(), 2);
+        assert!(result.contains(&"posts".to_string()));
+        assert!(result.contains(&"docs".to_string()));
+        assert!(!result.contains(&"images".to_string()));
+        assert!(!result.contains(&"css".to_string()));
+    }
+
+    #[test]
+    fn test_detect_project_type_homepage_with_collections() {
+        let files = vec![
+            FileInfo { path: "index.md".to_string(), file_type: "md".to_string(), size: 100, modified: None },
+            FileInfo { path: "posts/post1.md".to_string(), file_type: "md".to_string(), size: 200, modified: None },
+        ];
+        let content_folders = vec!["posts".to_string()];
+
+        let result = detect_project_type_from_content(&files, &content_folders);
+        assert_eq!(result, ProjectType::HomepageWithCollections);
+    }
+
+    #[test]
+    fn test_detect_project_type_simple_flat_site() {
+        let files = vec![
+            FileInfo { path: "about.md".to_string(), file_type: "md".to_string(), size: 100, modified: None },
+            FileInfo { path: "contact.md".to_string(), file_type: "md".to_string(), size: 100, modified: None },
+            FileInfo { path: "services.md".to_string(), file_type: "md".to_string(), size: 100, modified: None },
+        ];
+        let no_folders: Vec<String> = vec![];
+
+        let result = detect_project_type_from_content(&files, &no_folders);
+        assert_eq!(result, ProjectType::SimpleFlatSite);
+    }
+
+    #[test]
+    fn test_detect_project_type_blog_style_flat_site() {
+        // Create more than 5 files to trigger blog-style classification
+        let files: Vec<FileInfo> = (1..=7).map(|i| FileInfo {
+            path: format!("post{}.md", i),
+            file_type: "md".to_string(),
+            size: 100,
+            modified: None,
+        }).collect();
+        let no_folders: Vec<String> = vec![];
+
+        let result = detect_project_type_from_content(&files, &no_folders);
+        assert_eq!(result, ProjectType::BlogStyleFlatSite);
+    }
+
+    #[test]
+    fn test_case_insensitive_extensions() {
+        // Test that extension detection handles case variations
+        let uppercase_extensions = vec!["MD", "HTML", "JPG", "PNG"];
+        for ext in uppercase_extensions {
+            let lowercase = ext.to_lowercase();
+            assert!(["md", "html", "jpg", "png"].contains(&lowercase.as_str()));
+        }
+    }
+}

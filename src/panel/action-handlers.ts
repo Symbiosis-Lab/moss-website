@@ -92,16 +92,9 @@ export class ActionHandlers {
     // Setup Git Repository
     this.register("setup-git", async (context) => {
       console.log("🔧 Setting up Git...");
-
-      try {
-        const result = await TauriCommands.setupGithubRepository("", "", false, "");
-        console.log("✅ Git setup result:", result);
-        context.setButtonState(context.button, "success");
-        setTimeout(() => context.setButtonState(context.button, "default"), 2000);
-      } catch (error) {
-        console.error("❌ Git setup failed:", error);
-        throw error;
-      }
+      context.setButtonState(context.button, "error");
+      console.error("❌ Git setup not yet implemented");
+      setTimeout(() => context.setButtonState(context.button, "default"), 2000);
     });
 
     // Show System Information

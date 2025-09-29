@@ -2,7 +2,6 @@
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use std::collections::{HashSet, HashMap};
 
 /// Real-time progress update for compilation process.
 /// 
@@ -189,4 +188,117 @@ pub struct ServerState {
     /// Map of folder paths to their running server ports
     /// Enables server reuse when compiling the same folder multiple times
     pub active_servers: std::collections::HashMap<String, u16>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_server_state_registration() {
+        let mut state = ServerState::default();
+        state.active_servers.insert("/path1".to_string(), 3000);
+
+        assert_eq!(state.active_servers.get("/path1"), Some(&3000));
+        assert_eq!(state.active_servers.get("/nonexistent"), None);
+    }
+
+    #[test]
+    fn test_server_state_removal() {
+        let mut state = ServerState::default();
+        state.active_servers.insert("/path1".to_string(), 3000);
+
+        state.active_servers.remove("/path1");
+        assert_eq!(state.active_servers.get("/path1"), None);
+    }
+
+    #[test]
+    fn test_server_state_duplicate_paths() {
+        let mut state = ServerState::default();
+        state.active_servers.insert("/path1".to_string(), 3000);
+        state.active_servers.insert("/path1".to_string(), 4000);
+
+        // Should overwrite with new port
+        assert_eq!(state.active_servers.get("/path1"), Some(&4000));
+    }
+
+    #[test]
+    fn test_server_state_multiple_servers() {
+        let mut state = ServerState::default();
+        state.active_servers.insert("/path1".to_string(), 3000);
+        state.active_servers.insert("/path2".to_string(), 4000);
+        state.active_servers.insert("/path3".to_string(), 5000);
+
+        assert_eq!(state.active_servers.len(), 3);
+        assert_eq!(state.active_servers.get("/path2"), Some(&4000));
+    }
+
+    #[test]
+    fn test_progress_update_creation() {
+        let progress = ProgressUpdate {
+            step: "scanning".to_string(),
+            message: "Scanning files...".to_string(),
+            percentage: 25,
+            completed: false,
+            port: None,
+        };
+
+        assert_eq!(progress.step, "scanning");
+        assert_eq!(progress.message, "Scanning files...");
+        assert_eq!(progress.percentage, 25);
+        assert!(!progress.completed);
+        assert_eq!(progress.port, None);
+    }
+
+    #[test]
+    fn test_progress_update_with_port() {
+        let progress = ProgressUpdate {
+            step: "serving".to_string(),
+            message: "Server started".to_string(),
+            percentage: 100,
+            completed: true,
+            port: Some(3000),
+        };
+
+        assert_eq!(progress.step, "serving");
+        assert!(progress.completed);
+        assert_eq!(progress.port, Some(3000));
+    }
+
+    #[test]
+    fn test_progress_update_boundary_values() {
+        // Test minimum percentage
+        let progress_min = ProgressUpdate {
+            step: "start".to_string(),
+            message: "Starting...".to_string(),
+            percentage: 0,
+            completed: false,
+            port: None,
+        };
+        assert_eq!(progress_min.percentage, 0);
+
+        // Test maximum percentage
+        let progress_max = ProgressUpdate {
+            step: "complete".to_string(),
+            message: "Complete!".to_string(),
+            percentage: 100,
+            completed: true,
+            port: Some(8080),
+        };
+        assert_eq!(progress_max.percentage, 100);
+        assert!(progress_max.completed);
+    }
+
+    #[test]
+    fn test_project_type_variants() {
+        // Test that all ProjectType variants can be created
+        let homepage_with_collections = ProjectType::HomepageWithCollections;
+        let simple_flat = ProjectType::SimpleFlatSite;
+        let blog_style = ProjectType::BlogStyleFlatSite;
+
+        // Test equality
+        assert_eq!(homepage_with_collections, ProjectType::HomepageWithCollections);
+        assert_ne!(simple_flat, ProjectType::HomepageWithCollections);
+        assert_ne!(blog_style, simple_flat);
+    }
 }

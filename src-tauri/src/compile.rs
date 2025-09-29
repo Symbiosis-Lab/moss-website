@@ -22,7 +22,7 @@ pub mod server;
 // Re-export public functions for backward compatibility
 pub use analysis::scan_folder;
 pub use generator::generate_static_site;
-pub use server::{start_preview_server, stop_preview_server};
+pub use server::start_preview_server;
 
 #[cfg(test)]
 pub use analysis::{detect_homepage_file, detect_content_folders, detect_project_type_from_content};

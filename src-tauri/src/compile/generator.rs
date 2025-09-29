@@ -255,8 +255,6 @@ pub fn generate_static_site(source_path: &str, project_structure: &ProjectStruct
             .and_then(|_| documents.iter().find(|d| d.url_path == "index.html"))
             .map(|d| d.title.clone())
             .unwrap_or_else(|| "Site".to_string());
-        let nav_builder = NavigationBuilder::new(&documents, &site_title, 1, None);
-        let navigation = nav_builder.generate_main_navigation();
         
         for topic in all_topics {
             let topic_content = generate_topic_page_content(&topic, &documents);

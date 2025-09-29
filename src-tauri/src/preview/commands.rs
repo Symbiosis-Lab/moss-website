@@ -4,10 +4,6 @@
 //! publishing, editing, and syndication.
 
 use crate::preview::PreviewState;
-use crate::preview::git::{create_github_repo_and_remote, sanitize_repo_name};
-use crate::preview::github::deploy_to_github_pages;
-use crate::preview::state::PublishButtonState;
-use std::path::PathBuf;
 
 /// Validate and prepare a publish request from preview window
 pub fn validate_publish_request(state: &PreviewState) -> Result<(), String> {
