@@ -19,12 +19,20 @@ export interface IframeController {
  */
 export class PreviewManager {
   private iframe: HTMLIFrameElement;
+  private panelManager: any = null; // Will be injected later
 
   constructor(iframeId: string = "moss-preview-iframe") {
     this.iframe = document.getElementById(iframeId) as HTMLIFrameElement;
     if (!this.iframe) {
       throw new Error(`Preview iframe with id '${iframeId}' not found`);
     }
+  }
+
+  /**
+   * Set panel manager reference for mobile/desktop mode detection
+   */
+  setPanelManager(panelManager: any): void {
+    this.panelManager = panelManager;
   }
 
   /**
@@ -158,4 +166,6 @@ export class PreviewManager {
       console.log("🔄 Preview refreshed");
     }
   }
+
+
 }

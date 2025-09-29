@@ -88,10 +88,10 @@ export class MossApp {
         "command-backdrop"
       );
 
-      // Connect preview manager to action handlers if needed
-      if (this.previewManager) {
-        const actionHandlers = this.panelManager.getActionHandlers();
-        // Could register preview-specific actions here
+      // Connect preview manager to panel manager for mode detection
+      if (this.previewManager && this.panelManager) {
+        this.previewManager.setPanelManager(this.panelManager);
+        this.panelManager.setPreviewManager(this.previewManager);
       }
 
       console.log("✅ Panel system initialized");
