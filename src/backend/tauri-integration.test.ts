@@ -118,7 +118,7 @@ describe('Backend Integration', () => {
       const mockResult = { status: 'ok', data: 'Success message' };
       (commands.compileFolder as any).mockResolvedValue(mockResult);
 
-      await compileWithProgress('/test/folder', true, mockProgressCallback);
+      await compileWithProgress('/test/folder', true, false, mockProgressCallback);
 
       expect(Channel).toHaveBeenCalled();
       expect(mockChannel.onmessage).toBe(mockProgressCallback);
@@ -128,11 +128,12 @@ describe('Backend Integration', () => {
       const mockResult = { status: 'ok', data: 'Success message' };
       (commands.compileFolder as any).mockResolvedValue(mockResult);
 
-      await compileWithProgress('/test/folder', true, mockProgressCallback);
+      await compileWithProgress('/test/folder', true, false, mockProgressCallback);
 
       expect(commands.compileFolder).toHaveBeenCalledWith(
         '/test/folder',
         true,
+        false,
         mockChannel
       );
     });
@@ -141,7 +142,7 @@ describe('Backend Integration', () => {
       const mockResult = { status: 'ok', data: 'Compilation successful!' };
       (commands.compileFolder as any).mockResolvedValue(mockResult);
 
-      const result = await compileWithProgress('/test/folder', true, mockProgressCallback);
+      const result = await compileWithProgress('/test/folder', true, false, mockProgressCallback);
 
       expect(result).toBe('Compilation successful!');
     });
@@ -159,11 +160,12 @@ describe('Backend Integration', () => {
       const mockResult = { status: 'ok', data: 'Success' };
       (commands.compileFolder as any).mockResolvedValue(mockResult);
 
-      await compileWithProgress('/test/folder', undefined, mockProgressCallback);
+      await compileWithProgress('/test/folder', undefined, false, mockProgressCallback);
 
       expect(commands.compileFolder).toHaveBeenCalledWith(
         '/test/folder',
         true, // default value
+        false, // default watch value
         mockChannel
       );
     });
@@ -172,11 +174,12 @@ describe('Backend Integration', () => {
       const mockResult = { status: 'ok', data: 'Success' };
       (commands.compileFolder as any).mockResolvedValue(mockResult);
 
-      await compileWithProgress('/test/folder', false, mockProgressCallback);
+      await compileWithProgress('/test/folder', false, false, mockProgressCallback);
 
       expect(commands.compileFolder).toHaveBeenCalledWith(
         '/test/folder',
         false,
+        false, // default watch value
         mockChannel
       );
     });
@@ -194,7 +197,7 @@ describe('Backend Integration', () => {
       const mockResult = { status: 'ok', data: 'Success' };
       (commands.compileFolder as any).mockResolvedValue(mockResult);
 
-      await compileWithProgress('/test/folder', true, mockProgressCallback);
+      await compileWithProgress('/test/folder', true, false, mockProgressCallback);
 
       // Simulate progress update
       const sampleUpdate = {
@@ -215,11 +218,12 @@ describe('Backend Integration', () => {
       (commands.compileFolder as any).mockResolvedValue(mockResult);
       const specialPath = '/Users/test/Folder with spaces & symbols!';
 
-      await compileWithProgress(specialPath, true, mockProgressCallback);
+      await compileWithProgress(specialPath, true, false, mockProgressCallback);
 
       expect(commands.compileFolder).toHaveBeenCalledWith(
         specialPath,
         true,
+        false, // default watch value
         mockChannel
       );
     });
@@ -252,7 +256,7 @@ describe('Backend Integration', () => {
         console.log(`Step: ${update.step}, Progress: ${update.percentage}%`);
       };
 
-      await compileWithProgress('/test/folder', true, callback);
+      await compileWithProgress('/test/folder', true, false, callback);
 
       expect(commands.compileFolder).toHaveBeenCalled();
     });

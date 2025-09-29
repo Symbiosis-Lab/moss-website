@@ -48,6 +48,29 @@ describe('PreviewManager', () => {
     } as any;
     global.Blob = vi.fn() as any;
 
+    // Mock URL constructor for URL manipulation tests
+    global.URL = class MockURL {
+      pathname: string;
+      origin: string;
+
+      constructor(url: string) {
+        if (url === 'not-a-valid-url' || url === 'invalid-url') {
+          throw new Error('Invalid URL');
+        }
+
+        // Parse the URL manually for testing
+        const match = url.match(/^(https?:\/\/[^\/]+)(\/.*)?$/);
+        if (match) {
+          this.origin = match[1];
+          this.pathname = match[2] || '/';
+        } else {
+          throw new Error('Invalid URL format');
+        }
+      }
+
+      static createObjectURL = vi.fn().mockReturnValue('blob:mock-url');
+    } as any;
+
     // Clear all mocks
     vi.clearAllMocks();
 
@@ -316,6 +339,7 @@ describe('PreviewManager', () => {
       expect(compileWithProgress).toHaveBeenCalledWith(
         '/test/folder',
         true,
+        true, // file watching enabled
         expect.any(Function)
       );
     });
@@ -338,6 +362,7 @@ describe('PreviewManager', () => {
       expect(compileWithProgress).toHaveBeenCalledWith(
         '/test/folder',
         true, // default value
+        true, // file watching enabled
         expect.any(Function)
       );
     });
@@ -354,6 +379,219 @@ describe('PreviewManager', () => {
       previewManager.setPanelManager(mockPanelManager);
 
       expect((previewManager as any).panelManager).toBe(mockPanelManager);
+    });
+  });
+
+  describe('File Change Event Handling', () => {
+    beforeEach(() => {
+      previewManager = new PreviewManager();
+    });
+
+    test('handleFileChangeEvent with null event defaults to refresh', () => {
+      const refreshSpy = vi.spyOn(previewManager, 'refresh');
+
+      // Test with null
+      (previewManager as any).handleFileChangeEvent(null);
+
+      expect(refreshSpy).toHaveBeenCalledTimes(1);
+    });
+
+    test('handleFileChangeEvent with undefined event defaults to refresh', () => {
+      const refreshSpy = vi.spyOn(previewManager, 'refresh');
+
+      // Test with undefined
+      (previewManager as any).handleFileChangeEvent(undefined);
+
+      expect(refreshSpy).toHaveBeenCalledTimes(1);
+    });
+
+    test('handleFileChangeEvent with empty change event triggers refresh', () => {
+      const refreshSpy = vi.spyOn(previewManager, 'refresh');
+      const emptyEvent = {
+        deleted_paths: null,
+        renamed_paths: null
+      };
+
+      (previewManager as any).handleFileChangeEvent(emptyEvent);
+
+      expect(refreshSpy).toHaveBeenCalledTimes(1);
+    });
+
+    test('handleFileChangeEvent with empty arrays triggers refresh', () => {
+      const refreshSpy = vi.spyOn(previewManager, 'refresh');
+      const emptyEvent = {
+        deleted_paths: [],
+        renamed_paths: []
+      };
+
+      (previewManager as any).handleFileChangeEvent(emptyEvent);
+
+      expect(refreshSpy).toHaveBeenCalledTimes(1);
+    });
+
+    test('handleFileChangeEvent with deletion of current page redirects to homepage', () => {
+      // Mock the private method before calling
+      const redirectSpy = vi.fn();
+      (previewManager as any).redirectToHomepage = redirectSpy;
+
+      mockIframe.src = 'http://localhost:3000/blog/post.html';
+
+      const deleteEvent = {
+        deleted_paths: ['blog/post.html'],
+        renamed_paths: null
+      };
+
+      (previewManager as any).handleFileChangeEvent(deleteEvent);
+
+      expect(redirectSpy).toHaveBeenCalledTimes(1);
+    });
+
+    test('handleFileChangeEvent with deletion of other page refreshes', () => {
+      const refreshSpy = vi.spyOn(previewManager, 'refresh');
+      mockIframe.src = 'http://localhost:3000/blog/current.html';
+
+      const deleteEvent = {
+        deleted_paths: ['blog/other.html'],
+        renamed_paths: null
+      };
+
+      (previewManager as any).handleFileChangeEvent(deleteEvent);
+
+      expect(refreshSpy).toHaveBeenCalledTimes(1);
+    });
+
+    test('handleFileChangeEvent with rename of current page updates URL', () => {
+      // Mock the private method before calling
+      const updateUrlSpy = vi.fn();
+      (previewManager as any).updateUrlForRename = updateUrlSpy;
+
+      mockIframe.src = 'http://localhost:3000/blog/old-post.html';
+
+      const renameEvent = {
+        deleted_paths: null,
+        renamed_paths: [['blog/old-post.html', 'blog/new-post.html']]
+      };
+
+      (previewManager as any).handleFileChangeEvent(renameEvent);
+
+      expect(updateUrlSpy).toHaveBeenCalledWith('blog/old-post.html', 'blog/new-post.html');
+    });
+
+    test('handleFileChangeEvent with rename of other page refreshes', () => {
+      const refreshSpy = vi.spyOn(previewManager, 'refresh');
+      mockIframe.src = 'http://localhost:3000/blog/current.html';
+
+      const renameEvent = {
+        deleted_paths: null,
+        renamed_paths: [['blog/other.html', 'blog/renamed.html']]
+      };
+
+      (previewManager as any).handleFileChangeEvent(renameEvent);
+
+      expect(refreshSpy).toHaveBeenCalledTimes(1);
+    });
+
+    test('handleFileChangeEvent with malformed rename pairs is robust', () => {
+      const refreshSpy = vi.spyOn(previewManager, 'refresh');
+
+      // Test with malformed rename pairs
+      const malformedEvent = {
+        deleted_paths: null,
+        renamed_paths: [
+          ['only-one-item'], // Invalid: should have 2 items
+          null, // Invalid: null item
+          ['old.md', 'new.md', 'extra.md'] // Valid but with extra item
+        ]
+      };
+
+      expect(() => {
+        (previewManager as any).handleFileChangeEvent(malformedEvent);
+      }).not.toThrow();
+
+      expect(refreshSpy).toHaveBeenCalled();
+    });
+  });
+
+  describe('URL Manipulation Functions', () => {
+    beforeEach(() => {
+      previewManager = new PreviewManager();
+    });
+
+    test('extractPathFromUrl with normal URL', () => {
+      const url = 'http://localhost:3000/blog/post.html';
+      const result = (previewManager as any).extractPathFromUrl(url);
+
+      expect(result).toBe('blog/post.html');
+    });
+
+    test('extractPathFromUrl with index.html returns index.html', () => {
+      const url = 'http://localhost:3000/index.html';
+      const result = (previewManager as any).extractPathFromUrl(url);
+
+      expect(result).toBe('index.html');
+    });
+
+    test('extractPathFromUrl with root path returns index.html', () => {
+      const url = 'http://localhost:3000/';
+      const result = (previewManager as any).extractPathFromUrl(url);
+
+      expect(result).toBe('index.html');
+    });
+
+    test('extractPathFromUrl with malformed URL returns null', () => {
+      const malformedUrl = 'not-a-valid-url';
+      const result = (previewManager as any).extractPathFromUrl(malformedUrl);
+
+      expect(result).toBe(null);
+    });
+
+    test('redirectToHomepage constructs correct homepage URL', () => {
+      const loadPreviewSpy = vi.spyOn(previewManager, 'loadPreview');
+      mockIframe.src = 'http://localhost:3000/blog/post.html';
+
+      (previewManager as any).redirectToHomepage();
+
+      expect(loadPreviewSpy).toHaveBeenCalledWith('http://localhost:3000/index.html');
+    });
+
+    test('redirectToHomepage with malformed URL falls back to refresh', () => {
+      const loadPreviewSpy = vi.spyOn(previewManager, 'loadPreview');
+      const refreshSpy = vi.spyOn(previewManager, 'refresh');
+      mockIframe.src = 'invalid-url';
+
+      (previewManager as any).redirectToHomepage();
+
+      expect(loadPreviewSpy).not.toHaveBeenCalled();
+      expect(refreshSpy).toHaveBeenCalledTimes(1);
+    });
+
+    test('updateUrlForRename converts md to html and updates URL', () => {
+      const loadPreviewSpy = vi.spyOn(previewManager, 'loadPreview');
+      mockIframe.src = 'http://localhost:3000/blog/old.html';
+
+      (previewManager as any).updateUrlForRename('blog/old.md', 'blog/new.md');
+
+      expect(loadPreviewSpy).toHaveBeenCalledWith('http://localhost:3000/blog/new.html');
+    });
+
+    test('updateUrlForRename with html extension preserves extension', () => {
+      const loadPreviewSpy = vi.spyOn(previewManager, 'loadPreview');
+      mockIframe.src = 'http://localhost:3000/blog/old.html';
+
+      (previewManager as any).updateUrlForRename('blog/old.html', 'blog/new.html');
+
+      expect(loadPreviewSpy).toHaveBeenCalledWith('http://localhost:3000/blog/new.html');
+    });
+
+    test('updateUrlForRename with malformed URL falls back to refresh', () => {
+      const loadPreviewSpy = vi.spyOn(previewManager, 'loadPreview');
+      const refreshSpy = vi.spyOn(previewManager, 'refresh');
+      mockIframe.src = 'invalid-url';
+
+      (previewManager as any).updateUrlForRename('old.md', 'new.md');
+
+      expect(loadPreviewSpy).not.toHaveBeenCalled();
+      expect(refreshSpy).toHaveBeenCalledTimes(1);
     });
   });
 });

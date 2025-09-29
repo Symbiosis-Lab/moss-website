@@ -10,21 +10,30 @@ export const commands = {
  * 
  * This function handles GUI compilation with real-time progress updates sent
  * through a Tauri channel. It performs folder scanning, site generation, and
- * preview server startup with detailed progress information.
+ * preview server startup with detailed progress information. Optionally enables
+ * file watching for live development mode.
  * 
  * # Arguments
  * * `app` - Tauri app handle for preview URL communication
  * * `folder_path` - Absolute path to the folder containing website content
  * * `auto_serve` - Whether to automatically start preview server after compilation (default: false)
+ * * `watch` - Whether to start file watching for live development mode (default: false)
  * * `on_progress` - Channel for real-time progress updates
  * 
  * # Returns
  * * `Ok(String)` - Success message with compilation summary (and server info if started)
  * * `Err(String)` - Error message describing what went wrong
+ * 
+ * # File Watching Mode
+ * When `watch = true`:
+ * - Monitors source folder for content file changes (.md, .pages, .docx, images)
+ * - Ignores generated files in .moss/ directory
+ * - Performs silent recompilation on file changes (no progress updates)
+ * - Automatically refreshes browser preview if server is running
  */
-async compileFolder(folderPath: string, autoServe: boolean | null, onProgress: TAURI_CHANNEL<ProgressUpdate>) : Promise<Result<string, string>> {
+async compileFolder(folderPath: string, autoServe: boolean | null, watch: boolean | null, onProgress: TAURI_CHANNEL<ProgressUpdate>) : Promise<Result<string, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("compile_folder", { folderPath, autoServe, onProgress }) };
+    return { status: "ok", data: await TAURI_INVOKE("compile_folder", { folderPath, autoServe, watch, onProgress }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };

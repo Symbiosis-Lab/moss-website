@@ -8,7 +8,7 @@
 **Year 2: Growth** - Scale to sustainable revenue, reduce grant dependence  
 **Year 3: Ecosystem** - Self-sustaining infrastructure for the open web
 
-## Phase 0: Silent Foundation (Aug-Oct 2025)
+## Phase 0: Foundation (Aug-Nov 2025)
 
 **Build the irreducible core + plugin infrastructure**
 
@@ -18,30 +18,20 @@
 - Right-click folder → Publish flow ✅
 - Markdown → HTML with beautiful defaults ✅
 - Plugin architecture foundation 📋
-- Default minimal SSG as first plugin 📋
-- moss.pub deployment (zero config) 📋
+- Minimal SSG as default 📋
+- moss.host deployment (zero config hosting) 📋
 - GitHub Pages for developers 📋
 
-### Success Criteria
-
-- 20 beta users from personal network
-- <5 minute first publish experience
-- Daily use by creator (myself)
-- Core bugs eliminated
-
-### No public announcements. No funding applications.
-
-## Phase 1: Soft Emergence (Nov 2025-Jan 2026)
+## Phase 1: Emergence (Dec 2025-Feb 2026)
 
 **Prove value with early adopters through plugin ecosystem**
 
 ### Technical Milestones
 
-- Jekyll and Hugo SSG plugins
+- Astro and Hugo SSG plugins
 - Plugin marketplace foundation
 - Theme system via plugins (10+ beautiful options)
 - Publisher plugins (Netlify/Vercel)
-- RSS generation plugin
 - Micropub endpoint plugin for submissions
 
 ### Success Criteria
@@ -144,20 +134,3 @@
 ## Current Status
 
 **Phase 0 In Progress**: Core publishing pipeline working! ✅ Folder → Beautiful HTML + localhost preview. ✅ Right-click folder → "Publish to Web" → See instant preview. 📋 Plugin architecture and actual deployment still in development.
-
-Follow our progress in the [Development Journal](journal/).
-
-## Usage
-
-```bash
-# Development
-npm run tauri dev          # Launch development app
-# Click "🧪 Test Publish" to test with test-content/simple-blog/
-
-# Production (coming soon)
-# Right-click any folder → "Publish to Web" → See instant preview
-```
-
----
-
-_We build like moss grows: slowly, steadily, surely._

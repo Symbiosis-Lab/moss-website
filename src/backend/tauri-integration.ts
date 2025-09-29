@@ -30,20 +30,38 @@ export async function initializeTauriBackend(): Promise<void> {
 export async function compileWithProgress(
   folderPath: string,
   autoServe: boolean = true,
-  onProgress: (update: ProgressUpdate) => void
+  watchOrCallback: boolean | ((update: ProgressUpdate) => void) = false,
+  onProgress?: (update: ProgressUpdate) => void
 ): Promise<string> {
   console.log("📁 Starting compilation with progress for:", folderPath);
+
+  // Handle backward compatibility: support both old and new calling patterns
+  let watch: boolean;
+  let progressCallback: (update: ProgressUpdate) => void;
+
+  if (typeof watchOrCallback === 'function') {
+    // Old calling pattern: compileWithProgress(folderPath, autoServe, onProgress)
+    watch = false;
+    progressCallback = watchOrCallback;
+  } else {
+    // New calling pattern: compileWithProgress(folderPath, autoServe, watch, onProgress)
+    watch = watchOrCallback;
+    progressCallback = onProgress!;
+  }
+
+  console.log("🔍 Final parameters - watch:", watch, "folderPath:", folderPath, "autoServe:", autoServe);
 
   // Create progress channel
   const progressChannel = new Channel<ProgressUpdate>();
 
   // Set up progress listener
-  progressChannel.onmessage = onProgress;
+  progressChannel.onmessage = progressCallback;
 
   try {
     const result = await window.tauriInvoke.compileFolder(
       folderPath,
       autoServe,
+      watch,
       progressChannel
     );
 

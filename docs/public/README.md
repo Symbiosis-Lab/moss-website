@@ -2,19 +2,21 @@
 
 > Write anywhere. Publish everywhere. Own everything.
 
-A tiny desktop app that turns any folder into a website. Right-click, publish, done. 
+A tiny desktop app that turns any folder into a website. Right-click, publish, done.
 
 Your files stay on your computer. Your site lives on your domain. Your audience remains yours.
 
 ## Current Capabilities
 
 ✅ **Phase 0 (Available Now):**
+
 - Beautiful default theme with responsive design
 - Automatic markdown processing and site generation
 - Local preview server for immediate feedback
 - macOS Finder integration (right-click → Publish)
 
 📋 **Coming in Phase 1 (Nov 2025-Jan 2026):**
+
 - Theme marketplace with Jekyll, Hugo, Zola themes
 - Syndication to social networks and channels
 - Plugin ecosystem for extensibility
@@ -22,7 +24,7 @@ Your files stay on your computer. Your site lives on your domain. Your audience 
 **No Learning Curve**
 
 - Keep your folder structure exactly as you want it
-- Start simple: Built-in generator (instant, zero config)  
+- Start simple: Built-in generator (instant, zero config)
 - Grow gradually: Add themes and features as needed
 - No configuration files to learn
 

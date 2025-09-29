@@ -190,6 +190,52 @@ pub struct ServerState {
     pub active_servers: std::collections::HashMap<String, u16>,
 }
 
+/// File change event for live development mode.
+///
+/// Provides information about file system changes during file watching
+/// to enable smart frontend responses (refresh vs redirect).
+#[derive(Serialize, Deserialize, Debug, Clone, Type)]
+pub struct FileChangeEvent {
+    /// Files that were deleted (source paths)
+    pub deleted_paths: Option<Vec<String>>,
+    /// Files that were renamed: (old_path, new_path) pairs
+    pub renamed_paths: Option<Vec<(String, String)>>,
+}
+
+impl FileChangeEvent {
+    /// Create a new empty file change event
+    pub fn new() -> Self {
+        Self {
+            deleted_paths: None,
+            renamed_paths: None,
+        }
+    }
+
+    /// Add a deleted file path
+    pub fn add_deleted(&mut self, path: String) {
+        if let Some(ref mut paths) = self.deleted_paths {
+            paths.push(path);
+        } else {
+            self.deleted_paths = Some(vec![path]);
+        }
+    }
+
+    /// Add a renamed file path
+    pub fn add_renamed(&mut self, old_path: String, new_path: String) {
+        if let Some(ref mut paths) = self.renamed_paths {
+            paths.push((old_path, new_path));
+        } else {
+            self.renamed_paths = Some(vec![(old_path, new_path)]);
+        }
+    }
+
+    /// Check if there are any changes to report
+    pub fn has_changes(&self) -> bool {
+        self.deleted_paths.as_ref().map_or(false, |p| !p.is_empty()) ||
+        self.renamed_paths.as_ref().map_or(false, |p| !p.is_empty())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

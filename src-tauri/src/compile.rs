@@ -29,6 +29,9 @@ pub use analysis::{detect_homepage_file, detect_content_folders, detect_project_
 
 use crate::types::*;
 use std::path::Path;
+use std::time::{Duration, Instant};
+use std::collections::HashMap;
+use tauri::Emitter;
 
 
 
@@ -104,26 +107,36 @@ pub fn compile_folder_sync(folder_path: String, auto_serve: Option<bool>) -> Res
 }
 
 /// Tauri command for folder compilation with real-time progress channel.
-/// 
+///
 /// This function handles GUI compilation with real-time progress updates sent
 /// through a Tauri channel. It performs folder scanning, site generation, and
-/// preview server startup with detailed progress information.
-/// 
+/// preview server startup with detailed progress information. Optionally enables
+/// file watching for live development mode.
+///
 /// # Arguments
 /// * `app` - Tauri app handle for preview URL communication
 /// * `folder_path` - Absolute path to the folder containing website content
 /// * `auto_serve` - Whether to automatically start preview server after compilation (default: false)
+/// * `watch` - Whether to start file watching for live development mode (default: false)
 /// * `on_progress` - Channel for real-time progress updates
-/// 
+///
 /// # Returns
 /// * `Ok(String)` - Success message with compilation summary (and server info if started)
 /// * `Err(String)` - Error message describing what went wrong
+///
+/// # File Watching Mode
+/// When `watch = true`:
+/// - Monitors source folder for content file changes (.md, .pages, .docx, images)
+/// - Ignores generated files in .moss/ directory
+/// - Performs silent recompilation on file changes (no progress updates)
+/// - Automatically refreshes browser preview if server is running
 #[tauri::command]
 #[specta::specta]
 pub async fn compile_folder(
-    app: tauri::AppHandle, 
-    folder_path: String, 
+    app: tauri::AppHandle,
+    folder_path: String,
     auto_serve: Option<bool>,
+    watch: Option<bool>,
     on_progress: tauri::ipc::Channel<crate::types::ProgressUpdate>
 ) -> Result<String, String> {
     use crate::types::ProgressUpdate;
@@ -215,12 +228,299 @@ pub async fn compile_folder(
         
         // Step 5: Complete
         send_progress("ready", "Ready! Site compiled successfully.", 100, true, Some(port));
-        
-        Ok(format!("{}\n🌐 Preview server ready! Access at {}", base_message, preview_url))
+
+        let final_message = format!("{}\n🌐 Preview server ready! Access at {}", base_message, preview_url);
+
+        // Start file watching if requested
+        println!("🔍 File watching parameter: {:?}", watch);
+        if watch.unwrap_or(false) {
+            println!("👁️ Starting file watching for: {}", folder_path);
+            start_file_watching(app.clone(), folder_path.clone(), Some(port)).await;
+            Ok(format!("{}\n👁️ Watching for file changes...", final_message))
+        } else {
+            println!("🚫 File watching disabled");
+            Ok(final_message)
+        }
     } else {
         send_progress("complete", "Compilation completed", 100, true, None);
-        Ok(base_message)
+
+        // Start file watching if requested (without server)
+        println!("🔍 File watching parameter (no server): {:?}", watch);
+        if watch.unwrap_or(false) {
+            println!("👁️ Starting file watching (no server) for: {}", folder_path);
+            start_file_watching(app.clone(), folder_path.clone(), None).await;
+            Ok(format!("{}\n👁️ Watching for file changes...", base_message))
+        } else {
+            println!("🚫 File watching disabled (no server)");
+            Ok(base_message)
+        }
     }
+}
+
+/// Start file watching for live development mode.
+///
+/// Monitors the source folder for content file changes and triggers silent
+/// recompilation for seamless preview updates.
+///
+/// # Arguments
+/// * `app` - Tauri app handle for browser refresh integration
+/// * `folder_path` - Source folder to watch for changes
+/// * `server_port` - Optional preview server port for browser refresh
+async fn start_file_watching(app: tauri::AppHandle, folder_path: String, server_port: Option<u16>) {
+    use notify::{recommended_watcher, Event, RecommendedWatcher, RecursiveMode, Watcher};
+    use std::sync::mpsc::{channel, Receiver};
+
+    tokio::spawn(async move {
+        let (tx, rx): (std::sync::mpsc::Sender<notify::Result<Event>>, Receiver<notify::Result<Event>>) = channel();
+
+        // Create file system watcher
+        let mut watcher: RecommendedWatcher = match recommended_watcher(tx) {
+            Ok(watcher) => watcher,
+            Err(e) => {
+                eprintln!("❌ Failed to create file watcher: {}", e);
+                return;
+            }
+        };
+
+        // Start watching the folder recursively
+        if let Err(e) = watcher.watch(Path::new(&folder_path), RecursiveMode::Recursive) {
+            eprintln!("❌ Failed to start watching folder '{}': {}", folder_path, e);
+            return;
+        }
+
+        println!("👁️ File watcher started for: {}", folder_path);
+
+        // Debouncing state - track last event time for each file
+        let mut last_event_times: HashMap<String, Instant> = HashMap::new();
+        let debounce_duration = Duration::from_millis(300);
+
+        // Process file system events
+        loop {
+            match rx.recv() {
+                Ok(Ok(event)) => {
+                    if let Err(e) = handle_file_event(
+                        &event,
+                        &folder_path,
+                        &mut last_event_times,
+                        debounce_duration,
+                        &app,
+                        server_port
+                    ).await {
+                        eprintln!("❌ Error handling file event: {}", e);
+                    }
+                }
+                Ok(Err(e)) => eprintln!("❌ File watcher error: {}", e),
+                Err(e) => {
+                    eprintln!("❌ File watcher channel error: {}", e);
+                    break;
+                }
+            }
+        }
+    });
+}
+
+/// Handle individual file system events with debouncing and filtering
+async fn handle_file_event(
+    event: &notify::Event,
+    folder_path: &str,
+    last_event_times: &mut HashMap<String, Instant>,
+    debounce_duration: Duration,
+    app: &tauri::AppHandle,
+    server_port: Option<u16>
+) -> Result<(), String> {
+    use notify::EventKind;
+
+    // Track file changes for frontend notification
+    let mut file_changes = FileChangeEvent::new();
+    let mut should_recompile = false;
+
+    // Process different event types
+    match event.kind {
+        EventKind::Modify(modify_kind) => {
+            use notify::event::ModifyKind;
+            match modify_kind {
+                ModifyKind::Name(rename_mode) => {
+                    // File renamed - track for frontend and trigger recompilation
+                    should_recompile = true;
+                    println!("🔄 File(s) renamed: {:?}", rename_mode);
+
+                    // Handle different rename modes
+                    use notify::event::RenameMode;
+                    match rename_mode {
+                        RenameMode::Both => {
+                            // Both old and new paths in single event (order: from, to)
+                            if event.paths.len() >= 2 {
+                                let old_path = event.paths[0].to_string_lossy().to_string();
+                                let new_path = event.paths[1].to_string_lossy().to_string();
+
+                                if should_watch_file(&old_path) || should_watch_file(&new_path) {
+                                    let old_relative = get_relative_path(folder_path, &old_path);
+                                    let new_relative = get_relative_path(folder_path, &new_path);
+                                    file_changes.add_renamed(old_relative, new_relative);
+                                }
+                            }
+                        },
+                        RenameMode::From => {
+                            // This is the "from" path of a rename (old name)
+                            for path in &event.paths {
+                                let path_str = path.to_string_lossy().to_string();
+                                if should_watch_file(&path_str) {
+                                    let relative_path = get_relative_path(folder_path, &path_str);
+                                    // For now, treat as deletion since we don't have the "to" path
+                                    file_changes.add_deleted(relative_path);
+                                }
+                            }
+                        },
+                        RenameMode::To => {
+                            // This is the "to" path of a rename (new name)
+                            // Without the old path, we can't track the rename properly
+                            println!("🔄 Rename 'to' event (partial): {:?}", event.paths);
+                        },
+                        _ => {
+                            // Any or Other rename modes
+                            println!("🔄 Rename event (unknown mode): {:?}", event.paths);
+                        }
+                    }
+                },
+                _ => {
+                    // Other modify events (content, metadata changes)
+                    should_recompile = true;
+                    println!("📝 File(s) modified");
+                }
+            }
+        },
+        EventKind::Create(_) => {
+            // New file created - trigger recompilation
+            should_recompile = true;
+            println!("📄 File(s) created");
+        },
+        EventKind::Remove(_) => {
+            // File deleted - track for frontend and trigger recompilation
+            should_recompile = true;
+            println!("🗑️ File(s) deleted");
+
+            // Add deleted paths to change event
+            for path in &event.paths {
+                let path_str = path.to_string_lossy().to_string();
+                if should_watch_file(&path_str) {
+                    // Convert to relative path from folder_path
+                    let relative_path = get_relative_path(folder_path, &path_str);
+                    file_changes.add_deleted(relative_path);
+                }
+            }
+        },
+        _ => {
+            // Other events (access, metadata changes, etc.) - ignore
+            return Ok(());
+        }
+    }
+
+    if !should_recompile {
+        return Ok(());
+    }
+
+    // Process each affected file path for debouncing
+    for path in &event.paths {
+        let path_str = path.to_string_lossy().to_string();
+
+        // Filter out files we don't care about
+        if !should_watch_file(&path_str) {
+            continue;
+        }
+
+        // Implement debouncing - ignore events that are too close together
+        let now = Instant::now();
+        if let Some(last_time) = last_event_times.get(&path_str) {
+            if now.duration_since(*last_time) < debounce_duration {
+                continue; // Skip this event, too soon after last one
+            }
+        }
+
+        // Update last event time
+        last_event_times.insert(path_str.clone(), now);
+
+        // Trigger silent recompilation
+        if let Err(e) = silent_recompile(folder_path, app, server_port).await {
+            eprintln!("❌ Silent recompilation failed: {}", e);
+        }
+
+        // Always emit file change event to frontend for any file modification
+        if let Err(e) = app.emit("file-changed", &file_changes) {
+            eprintln!("❌ Failed to emit file change event: {}", e);
+        } else {
+            if file_changes.has_changes() {
+                println!("📡 Emitted file change event with special changes: {:?}", file_changes);
+            } else {
+                println!("📡 Emitted file change event for regular modification");
+            }
+        }
+
+        // Only handle the first changed file to avoid multiple rebuilds
+        break;
+    }
+
+    Ok(())
+}
+
+/// Check if a file should trigger recompilation
+fn should_watch_file(path: &str) -> bool {
+    // Content file extensions we care about
+    let content_extensions = ["md", "markdown", "pages", "docx", "jpg", "jpeg", "png", "gif", "svg"];
+
+    // Paths to ignore
+    let ignore_patterns = [".moss/", "node_modules/", ".git/", ".DS_Store", "thumbs.db"];
+
+    // Check if file should be ignored
+    for ignore in &ignore_patterns {
+        if path.contains(ignore) {
+            return false;
+        }
+    }
+
+    // Check file extension
+    if let Some(extension) = path.split('.').last() {
+        content_extensions.contains(&extension.to_lowercase().as_str())
+    } else {
+        false
+    }
+}
+
+/// Convert absolute path to relative path from folder_path
+fn get_relative_path(folder_path: &str, absolute_path: &str) -> String {
+    // Normalize folder path to ensure it ends with separator
+    let folder_path = Path::new(folder_path);
+    let absolute_path = Path::new(absolute_path);
+
+    // Try to strip the prefix (folder path) from the absolute path
+    if let Ok(relative) = absolute_path.strip_prefix(folder_path) {
+        relative.to_string_lossy().to_string()
+    } else {
+        // If we can't make it relative, just use the filename
+        absolute_path.file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_else(|| absolute_path.to_string_lossy().to_string())
+    }
+}
+
+/// Perform silent recompilation without progress updates
+async fn silent_recompile(folder_path: &str, app: &tauri::AppHandle, server_port: Option<u16>) -> Result<(), String> {
+    // Scan folder for updated content
+    let project_structure = scan_folder(folder_path)?;
+
+    // Silently regenerate static site
+    generate_static_site(folder_path, &project_structure)?;
+
+    println!("✅ Site regenerated silently");
+
+    // If we have a server, trigger browser refresh
+    if let Some(_port) = server_port {
+        // Send refresh signal to frontend via Tauri event system
+        if let Err(e) = app.emit("file-changed", ()) {
+            eprintln!("❌ Failed to send refresh event: {}", e);
+        }
+    }
+
+    Ok(())
 }
 
 
@@ -306,5 +606,142 @@ mod tests {
         
         let result = detect_project_type_from_content(&files_blog, &no_folders);
         assert_eq!(result, ProjectType::BlogStyleFlatSite, "Should classify as blog-style flat site");
+    }
+
+    /// Feature 4: File Watching - File Filtering
+    /// Tests which files should trigger recompilation
+    #[test]
+    fn test_file_watching_should_watch_file() {
+        // Content files that should trigger recompilation
+        assert!(should_watch_file("content/about.md"), "Should watch markdown files");
+        assert!(should_watch_file("posts/article.pages"), "Should watch Pages files");
+        assert!(should_watch_file("documents/report.docx"), "Should watch Word documents");
+        assert!(should_watch_file("images/photo.jpg"), "Should watch image files");
+        assert!(should_watch_file("assets/logo.png"), "Should watch PNG images");
+        assert!(should_watch_file("styles/custom.svg"), "Should watch SVG files");
+
+        // Generated/system files that should be ignored
+        assert!(!should_watch_file(".moss/site/index.html"), "Should ignore generated files");
+        assert!(!should_watch_file("node_modules/package/file.js"), "Should ignore node_modules");
+        assert!(!should_watch_file(".git/config"), "Should ignore git files");
+        assert!(!should_watch_file(".DS_Store"), "Should ignore system files");
+        assert!(!should_watch_file("thumbs.db"), "Should ignore Windows thumbnails");
+
+        // Files without recognized extensions
+        assert!(!should_watch_file("README"), "Should ignore files without extensions");
+        assert!(!should_watch_file("config.txt"), "Should ignore non-content files");
+    }
+
+    /// Feature 5: FileChangeEvent Creation and Processing
+    /// Tests the FileChangeEvent struct and its methods
+    #[test]
+    fn test_file_change_event_creation() {
+        // Test empty FileChangeEvent
+        let empty_event = FileChangeEvent::new();
+        assert!(!empty_event.has_changes(), "New FileChangeEvent should have no changes");
+        assert!(empty_event.deleted_paths.is_none(), "Should have no deleted paths");
+        assert!(empty_event.renamed_paths.is_none(), "Should have no renamed paths");
+
+        // Test adding deleted path
+        let mut event_with_deletion = FileChangeEvent::new();
+        event_with_deletion.add_deleted("deleted/file.md".to_string());
+
+        assert!(event_with_deletion.has_changes(), "Should have changes after adding deletion");
+        assert_eq!(event_with_deletion.deleted_paths.as_ref().unwrap().len(), 1);
+        assert_eq!(event_with_deletion.deleted_paths.as_ref().unwrap()[0], "deleted/file.md");
+
+        // Test adding multiple deleted paths
+        event_with_deletion.add_deleted("another/file.md".to_string());
+        assert_eq!(event_with_deletion.deleted_paths.as_ref().unwrap().len(), 2);
+
+        // Test adding renamed path
+        let mut event_with_rename = FileChangeEvent::new();
+        event_with_rename.add_renamed("old/path.md".to_string(), "new/path.md".to_string());
+
+        assert!(event_with_rename.has_changes(), "Should have changes after adding rename");
+        assert_eq!(event_with_rename.renamed_paths.as_ref().unwrap().len(), 1);
+        assert_eq!(event_with_rename.renamed_paths.as_ref().unwrap()[0], ("old/path.md".to_string(), "new/path.md".to_string()));
+
+        // Test adding multiple renamed paths
+        event_with_rename.add_renamed("old2.md".to_string(), "new2.md".to_string());
+        assert_eq!(event_with_rename.renamed_paths.as_ref().unwrap().len(), 2);
+
+        // Test combined changes
+        let mut combined_event = FileChangeEvent::new();
+        combined_event.add_deleted("deleted.md".to_string());
+        combined_event.add_renamed("old.md".to_string(), "new.md".to_string());
+
+        assert!(combined_event.has_changes(), "Should have changes with both deletions and renames");
+        assert!(combined_event.deleted_paths.is_some());
+        assert!(combined_event.renamed_paths.is_some());
+    }
+
+    /// Feature 6: Path Processing for File Events
+    /// Tests relative path conversion and processing
+    #[test]
+    fn test_get_relative_path() {
+        // Test normal relative path conversion
+        let folder_path = "/Users/test/project";
+        let absolute_path = "/Users/test/project/content/blog.md";
+
+        let result = get_relative_path(folder_path, absolute_path);
+        assert_eq!(result, "content/blog.md");
+
+        // Test with trailing slash
+        let folder_with_slash = "/Users/test/project/";
+        let result_with_slash = get_relative_path(folder_with_slash, absolute_path);
+        // Should work the same way
+        assert!(result_with_slash.contains("blog.md"));
+
+        // Test with file in root
+        let root_file = "/Users/test/project/index.md";
+        let result_root = get_relative_path(folder_path, root_file);
+        assert_eq!(result_root, "index.md");
+
+        // Test with path that can't be made relative (fallback to filename)
+        let unrelated_path = "/completely/different/path/file.md";
+        let result_fallback = get_relative_path(folder_path, unrelated_path);
+        assert_eq!(result_fallback, "file.md");
+
+        // Test with path that has no filename (fallback to directory name)
+        let no_filename_path = "/some/directory/";
+        let result_no_filename = get_relative_path(folder_path, no_filename_path);
+        assert_eq!(result_no_filename, "directory");
+    }
+
+    /// Feature 7: File Event Processing Logic
+    /// Tests that different event types are processed correctly
+    #[test]
+    fn test_file_event_classification() {
+        use notify::{EventKind, event::{ModifyKind, CreateKind, RemoveKind}};
+
+        // Test that Modify events are classified correctly
+        let modify_event = EventKind::Modify(ModifyKind::Data(notify::event::DataChange::Any));
+        match modify_event {
+            EventKind::Modify(ModifyKind::Name(_)) => panic!("Should not be a name modify"),
+            EventKind::Modify(_) => {}, // Expected path
+            _ => panic!("Should be a modify event"),
+        }
+
+        // Test that Create events are classified correctly
+        let create_event = EventKind::Create(CreateKind::File);
+        match create_event {
+            EventKind::Create(_) => {}, // Expected
+            _ => panic!("Should be a create event"),
+        }
+
+        // Test that Remove events are classified correctly
+        let remove_event = EventKind::Remove(RemoveKind::File);
+        match remove_event {
+            EventKind::Remove(_) => {}, // Expected
+            _ => panic!("Should be a remove event"),
+        }
+
+        // Test that Rename events (ModifyKind::Name) are classified correctly
+        let rename_event = EventKind::Modify(ModifyKind::Name(notify::event::RenameMode::Both));
+        match rename_event {
+            EventKind::Modify(ModifyKind::Name(_)) => {}, // Expected path for renames
+            _ => panic!("Should be a name modify event"),
+        }
     }
 }

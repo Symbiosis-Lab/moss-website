@@ -196,7 +196,123 @@ pub fn extract_date_from_path(url_path: &str, root_path: Option<&str>) -> String
     "Unknown".to_string()
 }
 
-/// Converts a string to a URL-safe slug by replacing spaces with hyphens and converting to lowercase
+/// Converts a string to a URL-safe slug by:
+/// - Converting to lowercase
+/// - Replacing spaces and underscores with hyphens
+/// - Removing or replacing special characters
+/// - Removing consecutive hyphens
+/// - Trimming hyphens from start/end
 pub fn generate_slug(text: &str) -> String {
-    text.replace(" ", "-").to_lowercase()
+    let result = text.to_lowercase()
+        // Replace spaces and underscores with hyphens
+        .replace([' ', '_'], "-")
+        // Replace common special characters with safe alternatives
+        .replace("&", "and")
+        .replace("@", "at")
+        .replace("+", "plus")
+        .replace("#", "hash")
+        .replace("%", "percent")
+        // Keep dots for numbers, but remove other special chars by filtering
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '.' { c } else { '-' })
+        .collect::<String>()
+        // Remove consecutive hyphens and clean up
+        .split('-')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<&str>>()
+        .join("-")
+        .trim_matches('-')
+        .chars()
+        .take(100) // Limit length to avoid extremely long URLs
+        .collect::<String>()
+        .trim_end_matches('-')
+        .to_string();
+
+    // Fallback for empty results
+    if result.is_empty() {
+        "untitled".to_string()
+    } else {
+        result
+    }
+}
+
+/// Extension trait to provide if_empty_then method
+trait StringExt {
+    fn if_empty_then(self, fallback: String) -> String;
+}
+
+impl StringExt for String {
+    fn if_empty_then(self, fallback: String) -> String {
+        if self.is_empty() { fallback } else { self }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generate_slug_basic() {
+        assert_eq!(generate_slug("Hello World"), "hello-world");
+        assert_eq!(generate_slug("My Blog Post"), "my-blog-post");
+    }
+
+    #[test]
+    fn test_generate_slug_special_characters() {
+        assert_eq!(generate_slug("API & Documentation"), "api-and-documentation");
+        assert_eq!(generate_slug("Contact @ Email"), "contact-at-email");
+        assert_eq!(generate_slug("C++ Programming"), "cplusplus-programming");
+        assert_eq!(generate_slug("50% Off"), "50percent-off");
+        assert_eq!(generate_slug("FAQ #1"), "faq-hash1");
+    }
+
+    #[test]
+    fn test_generate_slug_underscores() {
+        assert_eq!(generate_slug("file_name_example"), "file-name-example");
+        assert_eq!(generate_slug("snake_case_title"), "snake-case-title");
+    }
+
+    #[test]
+    fn test_generate_slug_remove_invalid_chars() {
+        assert_eq!(generate_slug("Title (with) brackets"), "title-with-brackets");
+        assert_eq!(generate_slug("Price: $99.99"), "price-99.99");
+        assert_eq!(generate_slug("User/Admin/Settings"), "user-admin-settings");
+    }
+
+    #[test]
+    fn test_generate_slug_consecutive_hyphens() {
+        assert_eq!(generate_slug("Multiple   Spaces"), "multiple-spaces");
+        assert_eq!(generate_slug("Too---Many-Hyphens"), "too-many-hyphens");
+        assert_eq!(generate_slug("Mixed _-_ Separators"), "mixed-separators");
+    }
+
+    #[test]
+    fn test_generate_slug_edge_cases() {
+        assert_eq!(generate_slug(""), "untitled");
+        assert_eq!(generate_slug("   "), "untitled");
+        assert_eq!(generate_slug("---"), "untitled");
+        assert_eq!(generate_slug("$@%!"), "atpercent");
+    }
+
+    #[test]
+    fn test_generate_slug_unicode() {
+        // Unicode characters should be removed, leaving English alphanumeric
+        assert_eq!(generate_slug("Café Menu"), "caf-menu");
+        assert_eq!(generate_slug("Résumé Template"), "r-sum-template");
+    }
+
+    #[test]
+    fn test_generate_slug_length_limit() {
+        let very_long = "a".repeat(200);
+        let result = generate_slug(&very_long);
+        assert!(result.len() <= 100);
+        assert_eq!(result, "a".repeat(100));
+    }
+
+    #[test]
+    fn test_generate_slug_trim_hyphens() {
+        assert_eq!(generate_slug("-leading hyphen"), "leading-hyphen");
+        assert_eq!(generate_slug("trailing hyphen-"), "trailing-hyphen");
+        assert_eq!(generate_slug("-both-"), "both");
+    }
 }
