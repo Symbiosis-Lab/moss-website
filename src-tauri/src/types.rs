@@ -142,10 +142,10 @@ pub struct SiteResult {
 }
 
 /// Parsed markdown document with frontmatter and content.
-/// 
+///
 /// Represents a processed markdown file ready for HTML generation.
 /// Enhanced data model following Jekyll/Hugo patterns for consistent site generation.
-/// References: 
+/// References:
 /// - https://jekyllrb.com/docs/variables/
 /// - https://gohugo.io/variables/page/
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -177,6 +177,10 @@ pub struct ParsedDocument {
     /// Preferred display title (H1 > frontmatter.title > filename)
     /// Following Eleventy computed data patterns
     pub display_title: String,
+    /// Navigation weight for ordering (lower numbers = higher priority)
+    pub weight: Option<i32>,
+    /// GitHub repository URL for site-wide navigation
+    pub github: Option<String>,
 }
 
 /// State management for tracking active preview servers.

@@ -3,11 +3,34 @@ function toggleTheme() {
     const html = document.documentElement;
     const currentTheme = html.getAttribute('data-theme');
     const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-    
+
     html.setAttribute('data-theme', newTheme);
     localStorage.setItem('theme', newTheme);
     console.log('🎨 Theme manually toggled to:', newTheme);
 }
+
+// Mobile menu toggle functionality
+function toggleMobileMenu() {
+    const navLinks = document.querySelector('.nav-links');
+    if (navLinks) {
+        navLinks.classList.toggle('mobile-open');
+        console.log('📱 Mobile menu toggled');
+    }
+}
+
+// Close mobile menu when clicking outside
+document.addEventListener('click', function(event) {
+    const navLinks = document.querySelector('.nav-links');
+    const mobileButton = document.querySelector('.mobile-menu-button');
+
+    if (navLinks && mobileButton && navLinks.classList.contains('mobile-open')) {
+        // Check if click is outside both the menu and the button
+        if (!navLinks.contains(event.target) && !mobileButton.contains(event.target)) {
+            navLinks.classList.remove('mobile-open');
+            console.log('📱 Mobile menu closed (click outside)');
+        }
+    }
+});
 
 // Initialize theme system with robust dark mode detection
 // References: 

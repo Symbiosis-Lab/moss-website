@@ -339,7 +339,15 @@ permalink: string;
  * Preferred display title (H1 > frontmatter.title > filename)
  * Following Eleventy computed data patterns
  */
-display_title: string }
+display_title: string; 
+/**
+ * Navigation weight for ordering (lower numbers = higher priority)
+ */
+weight: number | null; 
+/**
+ * GitHub repository URL for site-wide navigation
+ */
+github: string | null }
 /**
  * Metadata extracted from the preview content
  */

@@ -2,6 +2,12 @@
 
 > Write anywhere. Publish everywhere. Own everything.
 
+## What It Is
+
+A tiny desktop app that turns any folder into a website. Right-click, publish, done. Then syndicate to social networks and channels of your choice.
+
+Your files stay on your computer. Your site lives on your domain. Your audience remains yours.
+
 ## Philosophy
 
 Like its namesake, moss thrives in the spaces others overlook. It doesn't compete with platforms for sunlight. It creates the foundation layer that enables an entire ecosystem.
@@ -13,44 +19,11 @@ Like its namesake, moss thrives in the spaces others overlook. It doesn't compet
 - **Symbiotic** - Creates conditions for other life to flourish
 - **Patient** - Grows slowly but persistently
 
-## What It Is
-
-A tiny desktop app that turns any folder into a website. Right-click, publish, done. Then syndicate to social networks and channels of your choice.
-
-Your files stay on your computer. Your site lives on your domain. Your audience remains yours.
-
-## [Architecture](./docs/public/architecture.md)
-
-```
-Local files → moss → SSG (built-in/external) → Static site → Your infrastructure
-                ↓              ↓                      ↓
-          Theme selection  Folder adapter      Lichen injection
-                ↓              ↓                      ↓
-        Download SSG on-demand    ↓             Social features
-                           .moss/ directory
-                    (all temporary files)
-```
-
-**moss** - Desktop app orchestrating SSGs + deployment + syndication  
-**Spore** - Optional ActivityPub/WebMention server  
-**Lichen** - JavaScript widget adding social features to any static site
-
-moss doesn't compete with static site generators—it completes them. Choose any theme from Jekyll, Hugo, Zola, or Eleventy. moss handles the setup, preserves your folder structure, and adds the missing workflow pieces.
-
-## Principles
-
-- No database
-- No server required
-- No platform lock-in
-- No new protocols
-- Everything is a plugin
-
 ## Protocols
 
 - **Micropub** for submissions
-- **ActivityPub** for federation
+- **ActivityPub** for federated social
 - **WebMention** for pingbacks
-- **RSS** because it never died
 
 ## Usage
 
@@ -94,8 +67,4 @@ Time for infrastructure that does almost nothing, beautifully.
 
 ## License
 
-MIT. Take it. Fork it. Make it yours.
-
----
-
-_Like moss in nature, we grow slowly but inevitably. Not by replacing what exists, but by creating conditions for new growth._
+MIT

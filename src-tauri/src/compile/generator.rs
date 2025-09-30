@@ -19,7 +19,7 @@ use gray_matter::Matter;
 use gray_matter::engine::YAML;
 use serde::{Deserialize, Serialize};
 
-use crate::compile::navigation::{NavigationBuilder, extract_date_from_path, generate_slug};
+use crate::compile::navigation::{NavigationBuilder, extract_date_from_path, extract_date_from_doc, generate_slug, generate_collection_breadcrumb};
 
 /// Template types for different page layouts
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -123,8 +123,14 @@ pub struct TemplateVars {
     pub navigation: String,
     pub homepage_content: String,
     pub latest_list: Option<String>,
+    pub latest_sidebar: Option<String>,
     pub topics_section: Option<String>,
     pub breadcrumb: Option<String>,
+    // Article-specific variables
+    pub site_name: Option<String>,
+    pub date: Option<String>,
+    pub formatted_date: Option<String>,
+    pub content: Option<String>,
 }
 
 /// Template processor for centralized template variable replacement
@@ -150,18 +156,17 @@ impl TemplateProcessor {
             .replace("{navigation}", &vars.navigation)
             .replace("{homepage_content}", &vars.homepage_content);
 
-        // Optional variables based on template type
-        if let Some(latest_list) = vars.latest_list {
-            result = result.replace("{latest_list}", &latest_list);
-        }
+        // Optional variables - replace with content or empty string
+        result = result.replace("{latest_list}", &vars.latest_list.unwrap_or_default());
+        result = result.replace("{latest_sidebar}", &vars.latest_sidebar.unwrap_or_default());
+        result = result.replace("{topics_section}", &vars.topics_section.unwrap_or_default());
+        result = result.replace("{breadcrumb}", &vars.breadcrumb.unwrap_or_default());
 
-        if let Some(topics_section) = vars.topics_section {
-            result = result.replace("{topics_section}", &topics_section);
-        }
-
-        if let Some(breadcrumb) = vars.breadcrumb {
-            result = result.replace("{breadcrumb}", &breadcrumb);
-        }
+        // Article-specific variables
+        result = result.replace("{site_name}", &vars.site_name.unwrap_or_default());
+        result = result.replace("{date}", &vars.date.unwrap_or_default());
+        result = result.replace("{formatted_date}", &vars.formatted_date.unwrap_or_default());
+        result = result.replace("{content}", &vars.content.unwrap_or_default());
 
         result
     }
@@ -176,6 +181,10 @@ pub struct FrontMatter {
     pub date: Option<String>,
     /// Topics or tags for categorization
     pub topics: Option<Vec<String>>,
+    /// Navigation weight for ordering (lower numbers = higher priority)
+    pub weight: Option<i32>,
+    /// GitHub repository URL for site-wide navigation
+    pub github: Option<String>,
 }
 
 /// Generates a static website from scanned folder contents.
@@ -251,15 +260,21 @@ pub fn generate_static_site(source_path: &str, project_structure: &ProjectStruct
         fs::create_dir_all(&topics_dir).map_err(|e| format!("Failed to create topics directory: {}", e))?;
         
         // Generate navigation for topic pages
-        let site_title = project_structure.homepage_file.as_ref()
-            .and_then(|_| documents.iter().find(|d| d.url_path == "index.html"))
+        let homepage_doc = project_structure.homepage_file.as_ref()
+            .and_then(|_| documents.iter().find(|d| d.url_path == "index.html"));
+
+        let site_title = homepage_doc
             .map(|d| d.title.clone())
             .unwrap_or_else(|| "Site".to_string());
-        
+
+        let github_url = homepage_doc
+            .and_then(|d| d.github.as_ref())
+            .map(|s| s.as_str());
+
         for topic in all_topics {
-            let topic_content = generate_topic_page_content(&topic, &documents);
+            let topic_content = generate_topic_page_content(&topic, &documents, project_structure);
             let path_resolver = PathResolver::new(1); // Topics are at depth 1
-            let nav_builder = NavigationBuilder::new(&documents, &site_title, 1, None);
+            let nav_builder = NavigationBuilder::new(&documents, &site_title, 1, None, github_url);
             let processor = TemplateProcessor::new();
             
             let vars = TemplateVars {
@@ -269,8 +284,14 @@ pub fn generate_static_site(source_path: &str, project_structure: &ProjectStruct
                 navigation: nav_builder.generate_main_navigation(),
                 homepage_content: topic_content,
                 latest_list: None,
+                latest_sidebar: None,
                 topics_section: None,
                 breadcrumb: None,
+                // Article-specific variables (not used for topics)
+                site_name: None,
+                date: None,
+                formatted_date: None,
+                content: None,
             };
             
             let topic_html = processor.process(TemplateType::Topic, vars);
@@ -279,7 +300,64 @@ pub fn generate_static_site(source_path: &str, project_structure: &ProjectStruct
             page_count += 1;
         }
     }
-    
+
+    // Generate collection index pages for content folders
+    if !project_structure.content_folders.is_empty() {
+        let homepage_doc = project_structure.homepage_file.as_ref()
+            .and_then(|_| documents.iter().find(|d| d.url_path == "index.html"));
+
+        let site_title = homepage_doc
+            .map(|d| d.title.clone())
+            .unwrap_or_else(|| "Site".to_string());
+
+        let github_url = homepage_doc
+            .and_then(|d| d.github.as_ref())
+            .map(|s| s.as_str());
+
+        for folder_name in &project_structure.content_folders {
+            // Find all documents in this collection
+            let collection_docs: Vec<&ParsedDocument> = documents.iter()
+                .filter(|doc| doc.url_path.starts_with(&format!("{}/", folder_name)))
+                .collect();
+
+            if !collection_docs.is_empty() {
+                // Create collection directory
+                let collection_dir = output_dir.join(folder_name);
+                fs::create_dir_all(&collection_dir).map_err(|e| format!("Failed to create collection directory: {}", e))?;
+
+                // Generate collection index content
+                let collection_content = generate_collection_index_content(folder_name, &collection_docs);
+
+                // Generate HTML for collection index
+                let path_resolver = PathResolver::new(1); // Collections are at depth 1
+                let nav_builder = NavigationBuilder::new(&documents, &site_title, 1, None, github_url);
+                let processor = TemplateProcessor::new();
+
+                let vars = TemplateVars {
+                    title: format!("{}", folder_name),
+                    css_path: path_resolver.css_path(),
+                    js_path: path_resolver.js_path(),
+                    navigation: nav_builder.generate_main_navigation(),
+                    homepage_content: collection_content,
+                    latest_list: None,
+                    latest_sidebar: None,
+                    topics_section: None,
+                    breadcrumb: Some(generate_collection_breadcrumb(folder_name)),
+                    // Article-specific variables (not used for collection index)
+                    site_name: None,
+                    date: None,
+                    formatted_date: None,
+                    content: None,
+                };
+
+                let collection_html = processor.process(TemplateType::Page, vars);
+                let collection_index_path = collection_dir.join("index.html");
+                fs::write(&collection_index_path, collection_html).map_err(|e| format!("Failed to write collection index: {}", e))?;
+                page_count += 1;
+            }
+        }
+    }
+
     // Generate CSS and JavaScript
     let css_content = DEFAULT_CSS;
     fs::write(output_dir.join("style.css"), css_content).map_err(|e| format!("Failed to write CSS: {}", e))?;
@@ -355,20 +433,32 @@ pub fn process_markdown_file(file_path: &str, content: &str) -> Result<ParsedDoc
     let mut html_content = String::new();
     html::push_html(&mut html_content, parser);
     
-    // Determine final title based on file type
-    let title = if is_index_file(file_path) {
-        // For index files, prefer H1 content over filename
-        extract_first_heading(&html_content).unwrap_or(filename_title)
-    } else {
-        // For regular files, use filename (could extend this for frontmatter later)
-        filename_title
-    };
+    // Extract title from markdown content H1, with filename as fallback
+    let title = extract_first_heading(&html_content).unwrap_or(filename_title);
     
-    // Generate URL path
+    // Generate URL path using slugified filenames
     let url_path = if file_path.to_lowercase() == "index.md" || file_path.to_lowercase() == "readme.md" {
         "index.html".to_string()
     } else {
-        file_path.replace(".md", ".html").replace(".markdown", ".html")
+        // Get filename without extension
+        let filename_stem = Path::new(file_path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("untitled");
+
+        // Generate slug and add .html extension
+        let slug = generate_slug(filename_stem);
+
+        // Preserve directory structure
+        let parent_path = Path::new(file_path).parent()
+            .and_then(|p| p.to_str())
+            .unwrap_or("");
+
+        if parent_path.is_empty() {
+            format!("{}.html", slug)
+        } else {
+            format!("{}/{}.html", parent_path, slug)
+        }
     };
     
     // Parse frontmatter if present
@@ -381,10 +471,16 @@ pub fn process_markdown_file(file_path: &str, content: &str) -> Result<ParsedDoc
     
     // Extract date from frontmatter
     let date = frontmatter.date;
-    
+
     // Extract topics/categories from frontmatter
     let topics = frontmatter.topics.unwrap_or_default();
-    
+
+    // Extract weight from frontmatter
+    let weight = frontmatter.weight;
+
+    // Extract github URL from frontmatter
+    let github = frontmatter.github;
+
     // Calculate reading time (200 words per minute)
     let word_count = result.content.split_whitespace().count();
     let reading_time = std::cmp::max(1, (word_count / 200) as u32);
@@ -411,6 +507,8 @@ pub fn process_markdown_file(file_path: &str, content: &str) -> Result<ParsedDoc
         slug,
         permalink,
         display_title,
+        weight,
+        github,
     })
 }
 
@@ -421,19 +519,25 @@ pub fn generate_html(
     project: &ProjectStructure,
     is_homepage: bool
 ) -> Result<String, String> {
-    // Get site title for navigation
-    let site_title = project.homepage_file.as_ref()
-        .and_then(|_| all_docs.iter().find(|d| d.url_path == "index.html"))
+    // Get site title and github URL from homepage for navigation
+    let homepage_doc = project.homepage_file.as_ref()
+        .and_then(|_| all_docs.iter().find(|d| d.url_path == "index.html"));
+
+    let site_title = homepage_doc
         .map(|d| d.title.clone())
         .unwrap_or_else(|| "Site".to_string());
 
+    let github_url = homepage_doc
+        .and_then(|d| d.github.as_ref())
+        .map(|s| s.as_str());
+
     // Calculate depth for path adjustments
     let depth = doc.map(|d| d.url_path.matches('/').count()).unwrap_or(0);
-    
+
     // Initialize utilities
     let path_resolver = PathResolver::new(depth);
     let current_page_url = doc.map(|d| d.url_path.as_str());
-    let nav_builder = NavigationBuilder::new(all_docs, &site_title, depth, current_page_url);
+    let nav_builder = NavigationBuilder::new(all_docs, &site_title, depth, current_page_url, github_url);
     let processor = TemplateProcessor::new();
     
     // Determine template type
@@ -514,9 +618,22 @@ pub fn generate_html(
         css_path: path_resolver.css_path(),
         js_path: path_resolver.js_path(),
         navigation: nav_builder.generate_main_navigation(),
-        homepage_content,
+        homepage_content: homepage_content.clone(),
         latest_list: if template_type == TemplateType::Page {
             Some(nav_builder.generate_latest_sidebar(project))
+        } else {
+            None
+        },
+        latest_sidebar: if template_type == TemplateType::Page {
+            let latest_content = nav_builder.generate_latest_sidebar(project);
+            if latest_content.is_empty() {
+                None
+            } else {
+                Some(format!(r#"<aside class="latest-sidebar">
+                <h3>Latest</h3>
+                {}
+            </aside>"#, latest_content))
+            }
         } else {
             None
         },
@@ -539,6 +656,13 @@ pub fn generate_html(
         } else {
             None
         },
+        // Article-specific variables
+        site_name: if is_article_page { Some(site_title.clone()) } else { None },
+        date: if is_article_page && doc.is_some() { doc.unwrap().date.clone() } else { None },
+        formatted_date: if is_article_page && doc.is_some() && doc.unwrap().date.is_some() {
+            Some(format_date(doc.unwrap().date.as_ref().unwrap()))
+        } else { None },
+        content: if is_article_page { Some(homepage_content) } else { None },
     };
     
     Ok(processor.process(template_type, vars))
@@ -548,7 +672,7 @@ pub fn generate_html(
 /// Generates content for a topic page showing all articles with that topic.
 /// Follows Hugo taxonomy template patterns for consistent URL and title handling.
 /// References: https://gohugo.io/templates/taxonomy-templates/
-pub fn generate_topic_page_content(topic: &str, documents: &[ParsedDocument]) -> String {
+pub fn generate_topic_page_content(topic: &str, documents: &[ParsedDocument], project: &ProjectStructure) -> String {
     let articles_with_topic: Vec<&ParsedDocument> = documents.iter()
         .filter(|doc| doc.topics.contains(&topic.to_string()))
         .collect();
@@ -560,13 +684,13 @@ pub fn generate_topic_page_content(topic: &str, documents: &[ParsedDocument]) ->
     let article_list: Vec<String> = articles_with_topic.iter()
         .map(|doc| {
             // Use the same date format as Latest section (YYYY · MM)
-            let date_display = extract_date_from_path(&doc.url_path, None);
+            let date_display = extract_date_from_doc(doc, project);
             
             // Topic pages are at depth 1, so prepend "../" to URLs
             let article_url = format!("../{}", doc.url_path);
             
             format!(
-                "<p>{} <a href=\"{}\">{}</a></p>",
+                "<p><span class=\"date\">{}</span>&nbsp;&nbsp;<a href=\"{}\" style=\"text-decoration: underline; color: var(--moss-text-primary);\">{}</a></p>",
                 date_display, article_url, doc.display_title
             )
         })
@@ -575,6 +699,48 @@ pub fn generate_topic_page_content(topic: &str, documents: &[ParsedDocument]) ->
     format!(
         "<h1>Topic: {}</h1>\n<div class=\"topic-articles\">{}</div>",
         topic,
+        article_list.join("\n")
+    )
+}
+
+/// Generates content for a collection index page showing all articles in that collection.
+pub fn generate_collection_index_content(collection_name: &str, documents: &[&ParsedDocument]) -> String {
+    if documents.is_empty() {
+        return format!("<p>No articles found in collection: {}</p>", collection_name);
+    }
+
+    // Sort documents by date (newest first) if available, otherwise by title
+    let mut sorted_docs = documents.to_vec();
+    sorted_docs.sort_by(|a, b| {
+        match (&a.date, &b.date) {
+            (Some(date_a), Some(date_b)) => date_b.cmp(date_a), // Newest first
+            (Some(_), None) => std::cmp::Ordering::Less,       // Dated items first
+            (None, Some(_)) => std::cmp::Ordering::Greater,    // Undated items last
+            (None, None) => a.display_title.cmp(&b.display_title), // Alphabetical fallback
+        }
+    });
+
+    let article_list: Vec<String> = sorted_docs.iter()
+        .map(|doc| {
+            // Extract just the filename from the url_path for relative linking
+            let filename = doc.url_path.split('/').last().unwrap_or(&doc.url_path);
+
+            // Format date display
+            let date_display = if let Some(date) = &doc.date {
+                format_date(date)
+            } else {
+                extract_date_from_path(&doc.url_path, None)
+            };
+
+            format!(
+                "<p><span class=\"date\">{}</span>&nbsp;&nbsp;<a href=\"{}\" style=\"text-decoration: underline; color: var(--moss-text-primary);\">{}</a></p>",
+                date_display, filename, doc.display_title
+            )
+        })
+        .collect();
+
+    format!(
+        "<div class=\"collection-listing\">{}</div>",
         article_list.join("\n")
     )
 }

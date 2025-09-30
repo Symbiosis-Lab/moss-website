@@ -16,10 +16,8 @@
     </header>
     <div class="page-wrapper">
         <div class="container">
-            <aside class="latest-sidebar">
-                <h3>Latest</h3>
-                {latest_list}
-            </aside>
+            {breadcrumb}
+            {latest_sidebar}
             <div class="main-content">
                 <article>
                     {homepage_content}
@@ -28,26 +26,7 @@
             </div>
         </div>
     </div>
-    
-    <script>
-        // Dark mode toggle functionality
-        function toggleTheme() {
-            const html = document.documentElement;
-            const currentTheme = html.getAttribute('data-theme');
-            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-            
-            html.setAttribute('data-theme', newTheme);
-            localStorage.setItem('theme', newTheme);
-        }
-        
-        // Initialize theme on page load
-        (function() {
-            const savedTheme = localStorage.getItem('theme');
-            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-            const initialTheme = savedTheme || (prefersDark ? 'dark' : 'light');
-            
-            document.documentElement.setAttribute('data-theme', initialTheme);
-        })();
-    </script>
+
+    <script src="{js_path}"></script>
 </body>
 </html>

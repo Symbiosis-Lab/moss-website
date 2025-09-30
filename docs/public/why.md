@@ -1,3 +1,11 @@
+---
+weight: 10
+---
+
+# why moss
+
+> Invisible, but essential
+
 If you keep you work in your laptop, with moss, you can right click the folder and publish it into your website.
 
 It's convinient, and a good idea to keep your work in local files, instead of a database in someone else's server. Plus, it can syndicate to other social media platforms, so you can spread your work.

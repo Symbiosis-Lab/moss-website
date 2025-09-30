@@ -10,21 +10,16 @@
     <header>
         <nav class="main-nav container">
             <div class="nav-content">
-                <div class="nav-left">
-                    <a href="../" class="site-name">{site_name}</a>
-                </div>
-                <div class="nav-right">
-                    <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle dark mode">◐</button>
-                </div>
+                {navigation}
             </div>
         </nav>
     </header>
-    
+
     <div class="page-wrapper">
         <div class="container">
+            {breadcrumb}
             <div class="main-content">
                 <article>
-                    <h1>{title}</h1>
                     <div class="article-meta">
                         <time datetime="{date}">{formatted_date}</time>
                     </div>

@@ -13,20 +13,23 @@ pub struct NavigationBuilder<'a> {
     site_title: &'a str,
     depth: usize,
     current_page_url: Option<&'a str>,
+    github_url: Option<&'a str>,
 }
 
 impl<'a> NavigationBuilder<'a> {
     pub fn new(
-        documents: &'a [ParsedDocument], 
-        site_title: &'a str, 
-        depth: usize, 
-        current_page_url: Option<&'a str>
+        documents: &'a [ParsedDocument],
+        site_title: &'a str,
+        depth: usize,
+        current_page_url: Option<&'a str>,
+        github_url: Option<&'a str>
     ) -> Self {
         Self {
             documents,
             site_title,
             depth,
             current_page_url,
+            github_url,
         }
     }
 
@@ -40,34 +43,75 @@ impl<'a> NavigationBuilder<'a> {
             self.site_title
         );
         
-        // Navigation items on the right
+        // Navigation items on the right, sorted by weight
         let path_prefix = "../".repeat(self.depth);
-        let page_items: Vec<String> = self.documents.iter()
+
+        // Collect and sort documents by weight (lower numbers first), then by title
+        let mut nav_documents: Vec<&ParsedDocument> = self.documents.iter()
             .filter(|doc| !doc.url_path.starts_with("journal/") && doc.url_path != "index.html")
+            .collect();
+
+        nav_documents.sort_by(|a, b| {
+            match (a.weight, b.weight) {
+                (Some(a_weight), Some(b_weight)) => a_weight.cmp(&b_weight),
+                (Some(_), None) => std::cmp::Ordering::Less,    // Weighted items first
+                (None, Some(_)) => std::cmp::Ordering::Greater, // Unweighted items last
+                (None, None) => a.display_title.cmp(&b.display_title), // Alphabetical fallback
+            }
+        });
+
+        let page_items: Vec<String> = nav_documents.iter()
             .map(|doc| {
                 let label = doc.display_title.clone();
-                let href = if self.depth == 0 { 
-                    doc.url_path.clone() 
-                } else { 
+                let href = if self.depth == 0 {
+                    doc.url_path.clone()
+                } else {
                     format!("{}{}", path_prefix, doc.url_path)
                 };
-                
+
                 // Add active class if this is the current page
                 let class = if self.current_page_url.map_or(false, |url| url == doc.url_path) {
                     r#" class="active""#
                 } else {
                     ""
                 };
-                
+
                 format!(r#"<a href="{}"{class}>{}</a>"#, href, label)
             })
             .collect();
         
-        // Add dark mode toggle
-        let mut nav_right_items = page_items;
-        nav_right_items.push(r#"<button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle dark mode">◐</button>"#.to_string());
-        
-        let nav_right = format!(r#"<div class="nav-right">{}</div>"#, nav_right_items.join(""));
+        // Build navigation structure: [hamburger] [page links] [icons]
+
+        // Hamburger menu button (mobile only)
+        let hamburger = r#"<button class="mobile-menu-button" onclick="toggleMobileMenu()" aria-label="Toggle menu"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>"#;
+
+        // Page links container (collapsible on mobile)
+        let nav_links = if page_items.is_empty() {
+            String::new()
+        } else {
+            format!(r#"<div class="nav-links">{}</div>"#, page_items.join(""))
+        };
+
+        // Icons container (always visible)
+        let mut icon_items = Vec::new();
+
+        // Add vertical separator before icons
+        icon_items.push(r#"<span class="nav-divider"></span>"#.to_string());
+
+        // Add theme toggle with sun/moon icons
+        icon_items.push(r#"<button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle dark mode"><svg class="sun-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg><svg class="moon-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></button>"#.to_string());
+
+        // Add GitHub link if available
+        if let Some(github_url) = self.github_url {
+            icon_items.push(format!(
+                r#"<a href="{}" class="github-link" aria-label="GitHub Repository" target="_blank" rel="noopener"><svg viewBox="0 0 16 16" width="20" height="20" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a>"#,
+                github_url
+            ));
+        }
+
+        let nav_icons = format!(r#"<div class="nav-icons">{}</div>"#, icon_items.join(""));
+
+        let nav_right = format!(r#"<div class="nav-right">{}{}{}</div>"#, hamburger, nav_links, nav_icons);
         
         format!("{}{}", site_name, nav_right)
     }
@@ -81,18 +125,18 @@ impl<'a> NavigationBuilder<'a> {
         }
         
         let folder_name = path_parts[0]; // e.g., "journal"
-        let file_name = path_parts[1].strip_suffix(".html").unwrap_or(path_parts[1]);
+        let article_title = &doc.display_title; // Use actual article title
         
-        // Create folder link that goes back to parent directory
+        // Create folder link that points to collection index
         let folder_link = if self.depth == 1 {
-            "../".to_string() // From journal folder, go back to root
+            "./".to_string() // Link to collection index (e.g., journal/index.html)
         } else {
             format!("{}index.html", "../".repeat(self.depth - 1))
         };
         
         format!(
-            "<nav class=\"breadcrumb\"><a href=\"{}\">{}</a>/{}</nav>",
-            folder_link, folder_name, file_name
+            "<nav class=\"breadcrumb\" style=\"font-size: 1.1em; margin-bottom: 1.5em;\"><a href=\"{}\">{}</a> / {}</nav>",
+            folder_link, folder_name, article_title
         )
     }
 
@@ -112,8 +156,8 @@ impl<'a> NavigationBuilder<'a> {
         let items: Vec<String> = journal_entries.iter()
             .take(1)
             .map(|doc| {
-                // Extract date from filename (e.g., "2025-01-15.html" → "2025 · 01")
-                let date_display = extract_date_from_path(&doc.url_path, Some(&project.root_path));
+                // Extract date from frontmatter or filename
+                let date_display = extract_date_from_doc(doc, project);
                 
                 // Adjust journal link paths based on current depth
                 let link_path = if self.depth == 0 {
@@ -128,7 +172,7 @@ impl<'a> NavigationBuilder<'a> {
                 };
                 
                 format!(
-                    "<p>{} <a href=\"{}\">{}</a></p>", 
+                    "<p><span class=\"date\">{}</span>&nbsp;&nbsp;<a href=\"{}\" style=\"text-decoration: underline; color: var(--moss-text-primary);\">{}</a></p>",
                     date_display, link_path, doc.display_title
                 )
             })
@@ -159,6 +203,11 @@ impl<'a> NavigationBuilder<'a> {
         
         format!("<p class=\"topic-tags\">{}</p>", topic_links.join(", "))
     }
+}
+
+/// Generates breadcrumb for collection index pages
+pub fn generate_collection_breadcrumb(collection_name: &str) -> String {
+    format!("<nav class=\"breadcrumb\" style=\"font-size: 1.1em; margin-bottom: 1.5em;\">{}</nav>", collection_name)
 }
 
 /// Extract date from file path and format as "YYYY · MM"
@@ -194,6 +243,42 @@ pub fn extract_date_from_path(url_path: &str, root_path: Option<&str>) -> String
     }
     
     "Unknown".to_string()
+}
+
+/// Extract date from document preferring frontmatter over filename
+/// Returns formatted date as "YYYY · MM"
+pub fn extract_date_from_doc(doc: &ParsedDocument, project: &ProjectStructure) -> String {
+    // First priority: Use frontmatter date if available
+    if let Some(frontmatter_date) = &doc.date {
+        return format_date_string(frontmatter_date);
+    }
+
+    // Fallback: Use existing filename-based extraction
+    extract_date_from_path(&doc.url_path, Some(&project.root_path))
+}
+
+/// Format various date string formats to "YYYY · MM"
+fn format_date_string(date_str: &str) -> String {
+    // Handle common date formats: YYYY-MM-DD, YYYY/MM/DD, YYYY-MM, etc.
+    let cleaned = date_str.trim().replace('/', "-");
+
+    // Try to parse YYYY-MM-DD or YYYY-MM pattern
+    let parts: Vec<&str> = cleaned.split('-').collect();
+    if parts.len() >= 2 {
+        let year = parts[0];
+        let month = parts[1];
+
+        // Validate year and month are numeric
+        if year.len() == 4 && year.chars().all(|c| c.is_ascii_digit()) &&
+           month.len() <= 2 && month.chars().all(|c| c.is_ascii_digit()) {
+            // Pad month to 2 digits if needed
+            let month_padded = format!("{:0>2}", month);
+            return format!("{} · {}", year, month_padded);
+        }
+    }
+
+    // If parsing fails, return as-is
+    date_str.to_string()
 }
 
 /// Converts a string to a URL-safe slug by:
