@@ -10,14 +10,7 @@ Your files stay on your computer. Your site lives on your domain. Your audience 
 
 ## Philosophy
 
-Like its namesake, moss thrives in the spaces others overlook. It doesn't compete with platforms for sunlight. It creates the foundation layer that enables an entire ecosystem.
-
-- **Invisible but essential** - You don't notice moss until it's gone
-- **Resilient** - Survives where others can't
-- **Reproductive** - Spreads through reproduction, not control
-- **Transformative** - Breaks down inorganic matter into organic matter
-- **Symbiotic** - Creates conditions for other life to flourish
-- **Patient** - Grows slowly but persistently
+Like its namesake, moss thrives in the spaces others overlook. It doesn't compete with platforms for sunlight. It creates the foundation layer that enables an ecosystem.
 
 ## Protocols
 
@@ -25,45 +18,18 @@ Like its namesake, moss thrives in the spaces others overlook. It doesn't compet
 - **ActivityPub** for federated social
 - **WebMention** for pingbacks
 
-## Usage
+## Development
 
 ```bash
 # Development
-npm run tauri dev          # Launch development app
-# Click "🧪 Test Publish" to test with test-content/simple-blog/
-
-# Production (coming soon)
-# Right-click any folder → "Publish to Web" → See instant preview
+npm run dev          # Launch development app
 ```
 
-**Current Status**: Core publishing pipeline complete! Folder → Beautiful HTML + localhost preview working. Next: minimal built-in SSG + theme marketplace integration.
+**Current Status**
 
-For developers who want more:
+Folder → HTML + localhost preview
 
-```javascript
-// Everything beyond core is a plugin
-interface mossPlugin {
-  onBuild?: (site: Site) => Site
-  onPublish?: (deploy: Deploy) => void
-  syndicate?: (post: Post) => Result
-}
-```
-
-## What It's Not
-
-- Not a CMS
-- Not a platform
-- Not an editor
-- Not blockchain-based
-- Not VC-fundable
-
-## Why
-
-Platforms are failing creators. Algorithms are eating culture. The web is recentralizing.
-
-But the technology is ready. Rust is fast. WASM is portable. IndieWeb protocols work.
-
-Time for infrastructure that does almost nothing, beautifully.
+Next: zero config deployment
 
 ## License
 

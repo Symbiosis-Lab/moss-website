@@ -14,6 +14,7 @@ pub struct NavigationBuilder<'a> {
     depth: usize,
     current_page_url: Option<&'a str>,
     github_url: Option<&'a str>,
+    content_folders: &'a [String],
 }
 
 impl<'a> NavigationBuilder<'a> {
@@ -22,7 +23,8 @@ impl<'a> NavigationBuilder<'a> {
         site_title: &'a str,
         depth: usize,
         current_page_url: Option<&'a str>,
-        github_url: Option<&'a str>
+        github_url: Option<&'a str>,
+        content_folders: &'a [String],
     ) -> Self {
         Self {
             documents,
@@ -30,6 +32,7 @@ impl<'a> NavigationBuilder<'a> {
             depth,
             current_page_url,
             github_url,
+            content_folders,
         }
     }
 
@@ -47,8 +50,23 @@ impl<'a> NavigationBuilder<'a> {
         let path_prefix = "../".repeat(self.depth);
 
         // Collect and sort documents by weight (lower numbers first), then by title
+        // Filter out collection documents and index page
         let mut nav_documents: Vec<&ParsedDocument> = self.documents.iter()
-            .filter(|doc| !doc.url_path.starts_with("journal/") && doc.url_path != "index.html")
+            .filter(|doc| {
+                // Exclude index page
+                if doc.url_path == "index.html" {
+                    return false;
+                }
+
+                // Exclude documents from any detected content collection folders
+                for folder in self.content_folders {
+                    if doc.url_path.starts_with(&format!("{}/", folder)) {
+                        return false;
+                    }
+                }
+
+                true
+            })
             .collect();
 
         nav_documents.sort_by(|a, b| {
@@ -135,49 +153,68 @@ impl<'a> NavigationBuilder<'a> {
         };
         
         format!(
-            "<nav class=\"breadcrumb\" style=\"font-size: 1.1em; margin-bottom: 1.5em;\"><a href=\"{}\">{}</a> / {}</nav>",
+            "<nav class=\"breadcrumb\"><a href=\"{}\">{}</a> / {}</nav>",
             folder_link, folder_name, article_title
         )
     }
 
-    /// Generates latest section with only the most recent journal entry
+    /// Generates latest section with the most recent entry from any content collection
     pub fn generate_latest_sidebar(&self, project: &ProjectStructure) -> String {
-        let mut journal_entries: Vec<&ParsedDocument> = self.documents.iter()
-            .filter(|doc| doc.url_path.starts_with("journal/"))
+        let mut content_entries: Vec<&ParsedDocument> = self.documents.iter()
+            .filter(|doc| {
+                // Include documents from any detected content collection folder
+                for folder in &project.content_folders {
+                    if doc.url_path.starts_with(&format!("{}/", folder)) {
+                        return true;
+                    }
+                }
+                false
+            })
             .collect();
-        
-        // Sort by date (newest first)
-        journal_entries.sort_by(|a, b| b.url_path.cmp(&a.url_path));
-        
-        if journal_entries.is_empty() {
+
+        // Sort by date (newest first) - use actual dates when available, fallback to URL path
+        content_entries.sort_by(|a, b| {
+            match (&a.date, &b.date) {
+                (Some(date_a), Some(date_b)) => date_b.cmp(date_a), // Newer dates first
+                (Some(_), None) => std::cmp::Ordering::Less,        // Dated entries first
+                (None, Some(_)) => std::cmp::Ordering::Greater,     // Undated entries last
+                (None, None) => b.url_path.cmp(&a.url_path),        // Fallback to URL path
+            }
+        });
+
+        if content_entries.is_empty() {
             return "<p class=\"no-posts\">No posts yet</p>".to_string();
         }
-        
-        let items: Vec<String> = journal_entries.iter()
+
+        let items: Vec<String> = content_entries.iter()
             .take(1)
             .map(|doc| {
                 // Extract date from frontmatter or filename
                 let date_display = extract_date_from_doc(doc, project);
-                
-                // Adjust journal link paths based on current depth
+
+                // Adjust link paths based on current depth
                 let link_path = if self.depth == 0 {
-                    // From root: use journal/filename.html
+                    // From root: use full path
                     doc.url_path.clone()
-                } else if self.depth == 1 && doc.url_path.starts_with("journal/") {
-                    // From journal directory: use filename.html only
-                    doc.url_path.strip_prefix("journal/").unwrap_or(&doc.url_path).to_string()
                 } else {
-                    // From other depths: go back to root then to journal
-                    format!("{}{}", "../".repeat(self.depth), doc.url_path)
+                    // Determine if we're in the same collection directory
+                    let doc_folder = doc.url_path.split('/').next().unwrap_or("");
+                    if self.depth == 1 && self.content_folders.contains(&doc_folder.to_string()) {
+                        // From collection directory: use filename only
+                        doc.url_path.split('/').last().unwrap_or(&doc.url_path).to_string()
+                    } else {
+                        // From other depths: go back to root then to full path
+                        format!("{}{}", "../".repeat(self.depth), doc.url_path)
+                    }
                 };
-                
+
                 format!(
                     "<p><span class=\"date\">{}</span>&nbsp;&nbsp;<a href=\"{}\" style=\"text-decoration: underline; color: var(--moss-text-primary);\">{}</a></p>",
                     date_display, link_path, doc.display_title
                 )
             })
             .collect();
-        
+
         items.join("")
     }
 
@@ -211,16 +248,19 @@ pub fn generate_collection_breadcrumb(collection_name: &str) -> String {
 }
 
 /// Extract date from file path and format as "YYYY · MM"
-pub fn extract_date_from_path(url_path: &str, root_path: Option<&str>) -> String {
-    // Try to extract date from pattern like "journal/2025-01-15.html"
-    if let Some(filename) = url_path.strip_prefix("journal/") {
-        if let Some(date_part) = filename.strip_suffix(".html") {
-            // Parse YYYY-MM-DD pattern
-            let parts: Vec<&str> = date_part.split('-').collect();
-            if parts.len() >= 2 {
-                let year = parts[0];
-                let month = parts[1];
-                return format!("{} · {}", year, month);
+pub fn extract_date_from_path(url_path: &str, root_path: Option<&str>, content_folders: &[String]) -> String {
+    // Try to extract date from pattern like "posts/2025-01-15.html" for any content folder
+    for folder in content_folders {
+        let prefix = format!("{}/", folder);
+        if let Some(filename) = url_path.strip_prefix(&prefix) {
+            if let Some(date_part) = filename.strip_suffix(".html") {
+                // Parse YYYY-MM-DD pattern
+                let parts: Vec<&str> = date_part.split('-').collect();
+                if parts.len() >= 2 {
+                    let year = parts[0];
+                    let month = parts[1];
+                    return format!("{} · {}", year, month);
+                }
             }
         }
     }
@@ -254,11 +294,11 @@ pub fn extract_date_from_doc(doc: &ParsedDocument, project: &ProjectStructure) -
     }
 
     // Fallback: Use existing filename-based extraction
-    extract_date_from_path(&doc.url_path, Some(&project.root_path))
+    extract_date_from_path(&doc.url_path, Some(&project.root_path), &project.content_folders)
 }
 
 /// Format various date string formats to "YYYY · MM"
-fn format_date_string(date_str: &str) -> String {
+pub fn format_date_string(date_str: &str) -> String {
     // Handle common date formats: YYYY-MM-DD, YYYY/MM/DD, YYYY-MM, etc.
     let cleaned = date_str.trim().replace('/', "-");
 
@@ -399,5 +439,429 @@ mod tests {
         assert_eq!(generate_slug("-leading hyphen"), "leading-hyphen");
         assert_eq!(generate_slug("trailing hyphen-"), "trailing-hyphen");
         assert_eq!(generate_slug("-both-"), "both");
+    }
+
+    /// Navigation Collection Filtering Tests
+    /// Tests that collection documents are properly excluded from main navigation
+    #[test]
+    fn test_navigation_collection_filtering() {
+        use crate::types::ParsedDocument;
+
+        // Setup test documents
+        let documents = vec![
+            ParsedDocument {
+                url_path: "about.html".to_string(),
+                title: "About".to_string(),
+                display_title: "About".to_string(),
+                content: "About content".to_string(),
+                html_content: "<p>About content</p>".to_string(),
+                date: None,
+                topics: vec![],
+                reading_time: 1,
+                excerpt: "About excerpt".to_string(),
+                slug: "about".to_string(),
+                permalink: "/about.html".to_string(),
+                weight: Some(1),
+                github: None,
+            },
+            ParsedDocument {
+                url_path: "posts/first-post.html".to_string(),
+                title: "First Post".to_string(),
+                display_title: "First Post".to_string(),
+                content: "Post content".to_string(),
+                date: None,
+                html_content: "<p>Content</p>".to_string(),
+                reading_time: 1,
+                excerpt: "Excerpt".to_string(),
+                slug: "slug".to_string(),
+                permalink: "/permalink".to_string(),
+                weight: None,
+                topics: vec![],
+                github: None,
+            },
+            ParsedDocument {
+                url_path: "posts/second-post.html".to_string(),
+                title: "Second Post".to_string(),
+                display_title: "Second Post".to_string(),
+                content: "Post content".to_string(),
+                date: None,
+                html_content: "<p>Content</p>".to_string(),
+                reading_time: 1,
+                excerpt: "Excerpt".to_string(),
+                slug: "slug".to_string(),
+                permalink: "/permalink".to_string(),
+                weight: None,
+                topics: vec![],
+                github: None,
+            },
+            ParsedDocument {
+                url_path: "contact.html".to_string(),
+                title: "Contact".to_string(),
+                display_title: "Contact".to_string(),
+                content: "Contact content".to_string(),
+                date: None,
+                html_content: "<p>Content</p>".to_string(),
+                reading_time: 1,
+                excerpt: "Excerpt".to_string(),
+                slug: "slug".to_string(),
+                permalink: "/permalink".to_string(),
+                weight: Some(2),
+                topics: vec![],
+                github: None,
+            },
+            ParsedDocument {
+                url_path: "index.html".to_string(),
+                title: "Home".to_string(),
+                display_title: "Home".to_string(),
+                content: "Home content".to_string(),
+                date: None,
+                html_content: "<p>Content</p>".to_string(),
+                reading_time: 1,
+                excerpt: "Excerpt".to_string(),
+                slug: "slug".to_string(),
+                permalink: "/permalink".to_string(),
+                weight: None,
+                topics: vec![],
+                github: None,
+            },
+        ];
+
+        // Test with posts collection
+        let content_folders = vec!["posts".to_string()];
+        let nav_builder = NavigationBuilder::new(
+            &documents,
+            "Test Site",
+            0,
+            None,
+            None,
+            &content_folders,
+        );
+
+        let navigation_html = nav_builder.generate_main_navigation();
+
+        // Should include root-level pages
+        assert!(navigation_html.contains("About"), "Should include About page");
+        assert!(navigation_html.contains("Contact"), "Should include Contact page");
+
+        // Should exclude collection posts
+        assert!(!navigation_html.contains("First Post"), "Should exclude posts from collection");
+        assert!(!navigation_html.contains("Second Post"), "Should exclude posts from collection");
+
+        // Should exclude index page
+        assert!(!navigation_html.contains("Home"), "Should exclude index page");
+    }
+
+    #[test]
+    fn test_navigation_multiple_collections() {
+        use crate::types::ParsedDocument;
+
+        let documents = vec![
+            ParsedDocument {
+                url_path: "services.html".to_string(),
+                title: "Services".to_string(),
+                display_title: "Services".to_string(),
+                content: "Services content".to_string(),
+                date: None,
+                html_content: "<p>Content</p>".to_string(),
+                reading_time: 1,
+                excerpt: "Excerpt".to_string(),
+                slug: "slug".to_string(),
+                permalink: "/permalink".to_string(),
+                weight: None,
+                topics: vec![],
+                github: None,
+            },
+            ParsedDocument {
+                url_path: "blog/article.html".to_string(),
+                title: "Blog Article".to_string(),
+                display_title: "Blog Article".to_string(),
+                content: "Article content".to_string(),
+                date: None,
+                html_content: "<p>Content</p>".to_string(),
+                reading_time: 1,
+                excerpt: "Excerpt".to_string(),
+                slug: "slug".to_string(),
+                permalink: "/permalink".to_string(),
+                weight: None,
+                topics: vec![],
+                github: None,
+            },
+            ParsedDocument {
+                url_path: "docs/guide.html".to_string(),
+                title: "Guide".to_string(),
+                display_title: "Guide".to_string(),
+                content: "Guide content".to_string(),
+                date: None,
+                html_content: "<p>Content</p>".to_string(),
+                reading_time: 1,
+                excerpt: "Excerpt".to_string(),
+                slug: "slug".to_string(),
+                permalink: "/permalink".to_string(),
+                weight: None,
+                topics: vec![],
+                github: None,
+            },
+        ];
+
+        // Test with multiple collections
+        let content_folders = vec!["blog".to_string(), "docs".to_string()];
+        let nav_builder = NavigationBuilder::new(
+            &documents,
+            "Test Site",
+            0,
+            None,
+            None,
+            &content_folders,
+        );
+
+        let navigation_html = nav_builder.generate_main_navigation();
+
+        // Should include root-level page
+        assert!(navigation_html.contains("Services"), "Should include root-level Services page");
+
+        // Should exclude all collection items
+        assert!(!navigation_html.contains("Blog Article"), "Should exclude blog collection items");
+        assert!(!navigation_html.contains("Guide"), "Should exclude docs collection items");
+    }
+
+    #[test]
+    fn test_navigation_empty_collections() {
+        use crate::types::ParsedDocument;
+
+        let documents = vec![
+            ParsedDocument {
+                url_path: "about.html".to_string(),
+                title: "About".to_string(),
+                display_title: "About".to_string(),
+                content: "About content".to_string(),
+                date: None,
+                html_content: "<p>Content</p>".to_string(),
+                reading_time: 1,
+                excerpt: "Excerpt".to_string(),
+                slug: "slug".to_string(),
+                permalink: "/permalink".to_string(),
+                weight: None,
+                topics: vec![],
+                github: None,
+            },
+        ];
+
+        // Test with empty content folders
+        let content_folders: Vec<String> = vec![];
+        let nav_builder = NavigationBuilder::new(
+            &documents,
+            "Test Site",
+            0,
+            None,
+            None,
+            &content_folders,
+        );
+
+        let navigation_html = nav_builder.generate_main_navigation();
+
+        // Should include all non-index pages when no collections defined
+        assert!(navigation_html.contains("About"), "Should include About page when no collections");
+    }
+
+    #[test]
+    fn test_navigation_backwards_compatibility() {
+        use crate::types::ParsedDocument;
+
+        let documents = vec![
+            ParsedDocument {
+                url_path: "journal/old-post.html".to_string(),
+                title: "Old Journal Post".to_string(),
+                display_title: "Old Journal Post".to_string(),
+                content: "Journal content".to_string(),
+                date: None,
+                html_content: "<p>Content</p>".to_string(),
+                reading_time: 1,
+                excerpt: "Excerpt".to_string(),
+                slug: "slug".to_string(),
+                permalink: "/permalink".to_string(),
+                weight: None,
+                topics: vec![],
+                github: None,
+            },
+            ParsedDocument {
+                url_path: "about.html".to_string(),
+                title: "About".to_string(),
+                display_title: "About".to_string(),
+                content: "About content".to_string(),
+                date: None,
+                html_content: "<p>Content</p>".to_string(),
+                reading_time: 1,
+                excerpt: "Excerpt".to_string(),
+                slug: "slug".to_string(),
+                permalink: "/permalink".to_string(),
+                weight: None,
+                topics: vec![],
+                github: None,
+            },
+        ];
+
+        // Test with journal as content folder (backwards compatibility)
+        let content_folders = vec!["journal".to_string()];
+        let nav_builder = NavigationBuilder::new(
+            &documents,
+            "Test Site",
+            0,
+            None,
+            None,
+            &content_folders,
+        );
+
+        let navigation_html = nav_builder.generate_main_navigation();
+
+        // Should still exclude journal items
+        assert!(!navigation_html.contains("Old Journal Post"), "Should exclude journal items for backwards compatibility");
+        assert!(navigation_html.contains("About"), "Should include About page");
+    }
+
+    /// Latest Section Functionality Tests
+    /// Tests that the latest sidebar correctly shows content from dynamic content folders
+    #[test]
+    fn test_latest_section_dynamic_content_folders() {
+        use crate::types::{ParsedDocument, ProjectStructure, ProjectType};
+
+        // Create test documents with different content folders
+        let documents = vec![
+            ParsedDocument {
+                url_path: "posts/recent-post.html".to_string(),
+                title: "Recent Post".to_string(),
+                display_title: "Recent Post".to_string(),
+                content: "Recent post content".to_string(),
+                html_content: "<p>Recent post content</p>".to_string(),
+                date: Some("2025-10-01".to_string()),
+                topics: vec![],
+                reading_time: 2,
+                excerpt: "Recent post excerpt".to_string(),
+                slug: "recent-post".to_string(),
+                permalink: "/posts/recent-post.html".to_string(),
+                weight: None,
+                github: None,
+            },
+            ParsedDocument {
+                url_path: "journal/diary-entry.html".to_string(),
+                title: "Diary Entry".to_string(),
+                display_title: "Diary Entry".to_string(),
+                content: "Diary entry content".to_string(),
+                html_content: "<p>Diary entry content</p>".to_string(),
+                date: Some("2025-10-02".to_string()),
+                topics: vec![],
+                reading_time: 1,
+                excerpt: "Diary entry excerpt".to_string(),
+                slug: "diary-entry".to_string(),
+                permalink: "/journal/diary-entry.html".to_string(),
+                weight: None,
+                github: None,
+            },
+            ParsedDocument {
+                url_path: "about.html".to_string(),
+                title: "About".to_string(),
+                display_title: "About".to_string(),
+                content: "About content".to_string(),
+                html_content: "<p>About content</p>".to_string(),
+                date: None,
+                topics: vec![],
+                reading_time: 1,
+                excerpt: "About excerpt".to_string(),
+                slug: "about".to_string(),
+                permalink: "/about.html".to_string(),
+                weight: None,
+                github: None,
+            },
+        ];
+
+        // Test with posts content folder only
+        let content_folders = vec!["posts".to_string()];
+        let project_structure = ProjectStructure {
+            root_path: "/test".to_string(),
+            markdown_files: vec![],
+            html_files: vec![],
+            image_files: vec![],
+            other_files: vec![],
+            total_files: 0,
+            project_type: ProjectType::HomepageWithCollections,
+            homepage_file: None,
+            content_folders: content_folders.clone(),
+        };
+        let nav_builder = NavigationBuilder::new(
+            &documents,
+            "Test Site",
+            0,
+            None,
+            None,
+            &content_folders,
+        );
+
+        let latest_sidebar = nav_builder.generate_latest_sidebar(&project_structure);
+
+        // Should include posts from posts folder (only Recent Post since journal isn't in content_folders)
+        assert!(latest_sidebar.contains("Recent Post"), "Should include the latest post from posts folder");
+        // Should exclude journal entries when only posts is in content_folders
+        assert!(!latest_sidebar.contains("Diary Entry"), "Should exclude journal entries when not in content_folders");
+        // Should exclude regular pages
+        assert!(!latest_sidebar.contains("About"), "Should exclude regular pages from latest section");
+
+        // Test with both posts and journal content folders
+        let content_folders = vec!["posts".to_string(), "journal".to_string()];
+        let project_structure = ProjectStructure {
+            root_path: "/test".to_string(),
+            markdown_files: vec![],
+            html_files: vec![],
+            image_files: vec![],
+            other_files: vec![],
+            total_files: 0,
+            project_type: ProjectType::HomepageWithCollections,
+            homepage_file: None,
+            content_folders: content_folders.clone(),
+        };
+        let nav_builder = NavigationBuilder::new(
+            &documents,
+            "Test Site",
+            0,
+            None,
+            None,
+            &content_folders,
+        );
+
+        let latest_sidebar = nav_builder.generate_latest_sidebar(&project_structure);
+
+
+        // Should include the most recent entry (Diary Entry with 2025-10-02 is newer than Recent Post with 2025-10-01)
+        assert!(latest_sidebar.contains("Diary Entry"), "Should show most recent entry from any content folder");
+        assert!(!latest_sidebar.contains("Recent Post"), "Should only show the most recent entry");
+        // Should still exclude regular pages
+        assert!(!latest_sidebar.contains("About"), "Should exclude regular pages from latest section");
+
+        // Test with empty content folders (no latest content)
+        let content_folders: Vec<String> = vec![];
+        let project_structure = ProjectStructure {
+            root_path: "/test".to_string(),
+            markdown_files: vec![],
+            html_files: vec![],
+            image_files: vec![],
+            other_files: vec![],
+            total_files: 0,
+            project_type: ProjectType::HomepageWithCollections,
+            homepage_file: None,
+            content_folders: content_folders.clone(),
+        };
+        let nav_builder = NavigationBuilder::new(
+            &documents,
+            "Test Site",
+            0,
+            None,
+            None,
+            &content_folders,
+        );
+
+        let latest_sidebar = nav_builder.generate_latest_sidebar(&project_structure);
+
+        // Should show "No posts yet" when no content folders are configured
+        assert!(latest_sidebar.contains("No posts yet"), "Should show 'No posts yet' when no content folders are configured");
+        assert!(!latest_sidebar.contains("Recent Post"), "Should not include any posts when no content folders");
+        assert!(!latest_sidebar.contains("Diary Entry"), "Should not include any journal entries when no content folders");
     }
 }

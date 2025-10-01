@@ -12,7 +12,7 @@ Yet the issues I and many others set out to solve are now widespread. Government
 
 The power to determine what people see and think is too big a responsibility and risk for a few governments and corporations, and should not exist in the first place. They sprout from our reliance on platforms to think and understand collectively. But the platform is not the only way.
 
-1.
+## 1.
 
 The internet was invented for people to send webpages to each other. A webpage can contain media in any shape or form, and is fully controlled by the author. It is still the most expressive, permissive, and decentralized communication system we have. Domain names, browser standards, frontend developer tools - these are some of the best examples of open ecosystems made of software, protocol, and human organization.
 
@@ -22,7 +22,7 @@ Yet when platforms have become dead-simple to onboard, it still requires quite a
 
 Simplified to the extreme, one can right-click on a file or folder, build and preview the website, and publish it. Most content creators already have their work in local files, so this flow fits in well. It is also a good practice of how software and users interact: your [content is stored locally](https://www.inkandswitch.com/essay/local-first/), so you can always access it; your [creative work is stored in files](https://stephango.com/file-over-app) instead of hidden databases, so it can last longer than the application or service you use.
 
-2.
+## 2.
 
 I suspect that no one has built something like this because, on the surface, an extra simplification to the current website builders only corresponds to a very small market, which happens to include my older folks in their 60s. And principles like local-first or file-over-app, although important for the long-term, have little impact on the short-term choices of individual users. But I believe by itself, simplifying an action to the extreme is already a powerful feature to migrate users to a new system, and in the long run, those principles do make a difference that users can feel.
 

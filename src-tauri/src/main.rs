@@ -234,11 +234,11 @@ pub fn run() {
                 .item(&quit_i)
                 .build()?;
 
-            // Load moss icon for tray (16x16 PNG)
+            // Load moss icon for tray (19x19 PNG template)
             // Uses template format for automatic dark/light mode adaptation on macOS
-            let icon = match Image::from_path("icons/16x16.png") {
+            let icon = match Image::from_path("icons/menu-bar/MenuBarIconTemplate.png") {
                 Ok(img) => {
-                    println!("✅ Loaded moss icon for tray from icons/16x16.png");
+                    println!("✅ Loaded moss icon for tray from icons/menu-bar/MenuBarIconTemplate.png");
                     img
                 },
                 Err(e) => {

@@ -57,9 +57,17 @@ impl TemplateRegistry {
     }
 
     /// Determines the appropriate template type for a given document and context
-    pub fn select_template_type(doc: Option<&ParsedDocument>, is_homepage: bool) -> TemplateType {
+    pub fn select_template_type(doc: Option<&ParsedDocument>, is_homepage: bool, content_folders: &[String]) -> TemplateType {
         match (doc, is_homepage) {
-            (Some(doc), false) if doc.url_path.starts_with("journal/") => TemplateType::Article,
+            (Some(doc), false) => {
+                // Check if document is in any content collection folder (should use Article template)
+                for folder in content_folders {
+                    if doc.url_path.starts_with(&format!("{}/", folder)) {
+                        return TemplateType::Article;
+                    }
+                }
+                TemplateType::Page
+            },
             _ => TemplateType::Page,
         }
     }
@@ -108,6 +116,15 @@ impl PathResolver {
         }
     }
 
+    /// Generate favicon path based on depth
+    pub fn favicon_path(&self) -> String {
+        if self.depth == 0 {
+            "assets/favicon.svg".to_string()
+        } else {
+            format!("{}assets/favicon.svg", "../".repeat(self.depth))
+        }
+    }
+
     /// Get depth value
     pub fn depth(&self) -> usize {
         self.depth
@@ -126,10 +143,12 @@ pub struct TemplateVars {
     pub latest_sidebar: Option<String>,
     pub topics_section: Option<String>,
     pub breadcrumb: Option<String>,
+    pub favicon: Option<String>,
     // Article-specific variables
     pub site_name: Option<String>,
     pub date: Option<String>,
     pub formatted_date: Option<String>,
+    pub short_date: Option<String>,
     pub content: Option<String>,
 }
 
@@ -161,11 +180,13 @@ impl TemplateProcessor {
         result = result.replace("{latest_sidebar}", &vars.latest_sidebar.unwrap_or_default());
         result = result.replace("{topics_section}", &vars.topics_section.unwrap_or_default());
         result = result.replace("{breadcrumb}", &vars.breadcrumb.unwrap_or_default());
+        result = result.replace("{favicon}", &vars.favicon.unwrap_or_default());
 
         // Article-specific variables
         result = result.replace("{site_name}", &vars.site_name.unwrap_or_default());
         result = result.replace("{date}", &vars.date.unwrap_or_default());
         result = result.replace("{formatted_date}", &vars.formatted_date.unwrap_or_default());
+        result = result.replace("{short_date}", &vars.short_date.unwrap_or_default());
         result = result.replace("{content}", &vars.content.unwrap_or_default());
 
         result
@@ -223,8 +244,17 @@ pub fn generate_static_site(source_path: &str, project_structure: &ProjectStruct
         fs::remove_dir_all(&output_dir).map_err(|e| format!("Failed to clean site directory: {}", e))?;
     }
     fs::create_dir_all(&output_dir).map_err(|e| format!("Failed to create site directory: {}", e))?;
-    
-    
+
+    // Detect and copy favicon if assets/favicon.svg exists
+    let favicon_source = Path::new(source_path).join("assets").join("favicon.svg");
+    let has_favicon = favicon_source.exists();
+    if has_favicon {
+        let favicon_dest_dir = output_dir.join("assets");
+        fs::create_dir_all(&favicon_dest_dir).map_err(|e| format!("Failed to create assets directory: {}", e))?;
+        let favicon_dest = favicon_dest_dir.join("favicon.svg");
+        fs::copy(&favicon_source, &favicon_dest).map_err(|e| format!("Failed to copy favicon: {}", e))?;
+    }
+
     // Process markdown files
     let mut documents = Vec::new();
     for file_info in &project_structure.markdown_files {
@@ -247,7 +277,7 @@ pub fn generate_static_site(source_path: &str, project_structure: &ProjectStruct
             fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
         }
         
-        let html_page = generate_html(Some(doc), &documents, project_structure, false)?;
+        let html_page = generate_html(Some(doc), &documents, project_structure, false, has_favicon)?;
         fs::write(&output_file_path, html_page).map_err(|e| format!("Failed to write HTML file: {}", e))?;
         page_count += 1;
     }
@@ -274,7 +304,7 @@ pub fn generate_static_site(source_path: &str, project_structure: &ProjectStruct
         for topic in all_topics {
             let topic_content = generate_topic_page_content(&topic, &documents, project_structure);
             let path_resolver = PathResolver::new(1); // Topics are at depth 1
-            let nav_builder = NavigationBuilder::new(&documents, &site_title, 1, None, github_url);
+            let nav_builder = NavigationBuilder::new(&documents, &site_title, 1, None, github_url, &project_structure.content_folders);
             let processor = TemplateProcessor::new();
             
             let vars = TemplateVars {
@@ -287,10 +317,16 @@ pub fn generate_static_site(source_path: &str, project_structure: &ProjectStruct
                 latest_sidebar: None,
                 topics_section: None,
                 breadcrumb: None,
+                favicon: if has_favicon {
+                    Some(format!(r#"<link rel="icon" type="image/svg+xml" href="{}">"#, path_resolver.favicon_path()))
+                } else {
+                    None
+                },
                 // Article-specific variables (not used for topics)
                 site_name: None,
                 date: None,
                 formatted_date: None,
+                short_date: None,
                 content: None,
             };
             
@@ -326,11 +362,11 @@ pub fn generate_static_site(source_path: &str, project_structure: &ProjectStruct
                 fs::create_dir_all(&collection_dir).map_err(|e| format!("Failed to create collection directory: {}", e))?;
 
                 // Generate collection index content
-                let collection_content = generate_collection_index_content(folder_name, &collection_docs);
+                let collection_content = generate_collection_index_content(folder_name, &collection_docs, project_structure);
 
                 // Generate HTML for collection index
                 let path_resolver = PathResolver::new(1); // Collections are at depth 1
-                let nav_builder = NavigationBuilder::new(&documents, &site_title, 1, None, github_url);
+                let nav_builder = NavigationBuilder::new(&documents, &site_title, 1, None, github_url, &project_structure.content_folders);
                 let processor = TemplateProcessor::new();
 
                 let vars = TemplateVars {
@@ -343,10 +379,16 @@ pub fn generate_static_site(source_path: &str, project_structure: &ProjectStruct
                     latest_sidebar: None,
                     topics_section: None,
                     breadcrumb: Some(generate_collection_breadcrumb(folder_name)),
+                    favicon: if has_favicon {
+                        Some(format!(r#"<link rel="icon" type="image/svg+xml" href="{}">"#, path_resolver.favicon_path()))
+                    } else {
+                        None
+                    },
                     // Article-specific variables (not used for collection index)
                     site_name: None,
                     date: None,
                     formatted_date: None,
+                    short_date: None,
                     content: None,
                 };
 
@@ -373,27 +415,27 @@ pub fn generate_static_site(source_path: &str, project_structure: &ProjectStruct
     for file_info in &project_structure.image_files {
         let source_file = Path::new(source_path).join(&file_info.path);
         let dest_file = output_dir.join(&file_info.path);
-        
+
         if let Some(parent) = dest_file.parent() {
             fs::create_dir_all(parent).map_err(|e| format!("Failed to create image directory: {}", e))?;
         }
-        
+
         if let Err(_e) = fs::copy(&source_file, &dest_file) {
         }
     }
-    
+
     // Generate index.html - either standalone blog feed or combined with homepage content
     if !documents.is_empty() {
         if project_structure.homepage_file.is_some() {
             // There's a homepage file (likely README.md) - combine it with blog feed
             // Find the homepage document
             let homepage_doc = documents.iter().find(|d| d.url_path == "index.html");
-            let index_html = generate_html(homepage_doc, &documents, project_structure, true)?;
+            let index_html = generate_html(homepage_doc, &documents, project_structure, true, has_favicon)?;
             fs::write(output_dir.join("index.html"), index_html).map_err(|e| format!("Failed to write index.html: {}", e))?;
             page_count += 1;
         } else {
             // No homepage file - generate pure blog feed
-            let index_html = generate_html(None, &documents, project_structure, false)?;
+            let index_html = generate_html(None, &documents, project_structure, false, has_favicon)?;
             fs::write(output_dir.join("index.html"), index_html).map_err(|e| format!("Failed to write index.html: {}", e))?;
             page_count += 1;
         }
@@ -408,6 +450,55 @@ pub fn generate_static_site(source_path: &str, project_structure: &ProjectStruct
         output_path: output_dir.to_string_lossy().to_string(),
         site_title,
     })
+}
+
+/// Transforms markdown links to HTML links for static site generation.
+///
+/// Converts relative `.md` and `.markdown` links to `.html` while preserving:
+/// - Fragments (e.g., `file.md#section` → `file.html#section`)
+/// - External URLs (http/https URLs are not transformed)
+/// - Already .html links (no transformation needed)
+///
+/// # Arguments
+/// * `url` - The URL from a markdown link
+///
+/// # Returns
+/// * Transformed URL with .md → .html conversion
+///
+/// # Examples
+/// ```
+/// assert_eq!(transform_markdown_link("./roadmap.md"), "./roadmap.html");
+/// assert_eq!(transform_markdown_link("file.md#anchor"), "file.html#anchor");
+/// assert_eq!(transform_markdown_link("https://example.com/file.md"), "https://example.com/file.md");
+/// ```
+fn transform_markdown_link(url: &str) -> String {
+    // Don't transform external URLs
+    if url.starts_with("http://") || url.starts_with("https://") || url.starts_with("//") {
+        return url.to_string();
+    }
+
+    // Split URL into path and fragment
+    let (path, fragment) = if let Some(pos) = url.find('#') {
+        (&url[..pos], Some(&url[pos..]))
+    } else {
+        (url, None)
+    };
+
+    // Transform .md or .markdown to .html
+    let transformed_path = if path.ends_with(".md") {
+        path.strip_suffix(".md").unwrap().to_string() + ".html"
+    } else if path.ends_with(".markdown") {
+        path.strip_suffix(".markdown").unwrap().to_string() + ".html"
+    } else {
+        path.to_string()
+    };
+
+    // Recombine with fragment if present
+    if let Some(frag) = fragment {
+        transformed_path + frag
+    } else {
+        transformed_path
+    }
 }
 
 /// Processes a markdown file with frontmatter into a ParsedDocument.
@@ -428,8 +519,29 @@ pub fn process_markdown_file(file_path: &str, content: &str) -> Result<ParsedDoc
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_FOOTNOTES);
-    
-    let parser = Parser::new_ext(&result.content, options);
+
+    // Create parser and transform markdown links to HTML links
+    let parser = Parser::new_ext(&result.content, options).map(|event| {
+        match event {
+            pulldown_cmark::Event::Start(pulldown_cmark::Tag::Link {
+                link_type,
+                dest_url,
+                title,
+                id
+            }) => {
+                // Transform .md links to .html
+                let transformed_url = transform_markdown_link(&dest_url);
+                pulldown_cmark::Event::Start(pulldown_cmark::Tag::Link {
+                    link_type,
+                    dest_url: transformed_url.into(),
+                    title,
+                    id,
+                })
+            }
+            _ => event,
+        }
+    });
+
     let mut html_content = String::new();
     html::push_html(&mut html_content, parser);
     
@@ -514,10 +626,11 @@ pub fn process_markdown_file(file_path: &str, content: &str) -> Result<ParsedDoc
 
 /// Unified HTML generation function for all page types 
 pub fn generate_html(
-    doc: Option<&ParsedDocument>, 
-    all_docs: &[ParsedDocument], 
+    doc: Option<&ParsedDocument>,
+    all_docs: &[ParsedDocument],
     project: &ProjectStructure,
-    is_homepage: bool
+    is_homepage: bool,
+    has_favicon: bool
 ) -> Result<String, String> {
     // Get site title and github URL from homepage for navigation
     let homepage_doc = project.homepage_file.as_ref()
@@ -537,11 +650,11 @@ pub fn generate_html(
     // Initialize utilities
     let path_resolver = PathResolver::new(depth);
     let current_page_url = doc.map(|d| d.url_path.as_str());
-    let nav_builder = NavigationBuilder::new(all_docs, &site_title, depth, current_page_url, github_url);
+    let nav_builder = NavigationBuilder::new(all_docs, &site_title, depth, current_page_url, github_url, &project.content_folders);
     let processor = TemplateProcessor::new();
     
     // Determine template type
-    let template_type = TemplateRegistry::select_template_type(doc, is_homepage);
+    let template_type = TemplateRegistry::select_template_type(doc, is_homepage, &project.content_folders);
     let is_article_page = template_type == TemplateType::Article;
     
     // Prepare content based on page type
@@ -575,7 +688,7 @@ pub fn generate_html(
             let mut content = doc.html_content.clone();
             
             // Remove the first H1 heading based on page type
-            let should_remove_h1 = if is_navigation_page(&doc.url_path) {
+            let should_remove_h1 = if is_navigation_page(&doc.url_path, &project.content_folders) {
                 // For navigation pages: always remove first H1 (title shown in nav)
                 true
             } else if is_article_page {
@@ -656,11 +769,19 @@ pub fn generate_html(
         } else {
             None
         },
+        favicon: if has_favicon {
+            Some(format!(r#"<link rel="icon" type="image/svg+xml" href="{}">"#, path_resolver.favicon_path()))
+        } else {
+            None
+        },
         // Article-specific variables
         site_name: if is_article_page { Some(site_title.clone()) } else { None },
         date: if is_article_page && doc.is_some() { doc.unwrap().date.clone() } else { None },
         formatted_date: if is_article_page && doc.is_some() && doc.unwrap().date.is_some() {
             Some(format_date(doc.unwrap().date.as_ref().unwrap()))
+        } else { None },
+        short_date: if is_article_page && doc.is_some() && doc.unwrap().date.is_some() {
+            Some(crate::compile::navigation::format_date_string(doc.unwrap().date.as_ref().unwrap()))
         } else { None },
         content: if is_article_page { Some(homepage_content) } else { None },
     };
@@ -704,7 +825,7 @@ pub fn generate_topic_page_content(topic: &str, documents: &[ParsedDocument], pr
 }
 
 /// Generates content for a collection index page showing all articles in that collection.
-pub fn generate_collection_index_content(collection_name: &str, documents: &[&ParsedDocument]) -> String {
+pub fn generate_collection_index_content(collection_name: &str, documents: &[&ParsedDocument], project_structure: &ProjectStructure) -> String {
     if documents.is_empty() {
         return format!("<p>No articles found in collection: {}</p>", collection_name);
     }
@@ -729,7 +850,7 @@ pub fn generate_collection_index_content(collection_name: &str, documents: &[&Pa
             let date_display = if let Some(date) = &doc.date {
                 format_date(date)
             } else {
-                extract_date_from_path(&doc.url_path, None)
+                extract_date_from_path(&doc.url_path, None, &project_structure.content_folders)
             };
 
             format!(
@@ -776,11 +897,18 @@ pub fn resolve_display_title(title: &str, html_content: &str, url_path: &str) ->
 }
 
 /// Determines if a document is a navigation page (appears in main nav).
-/// Navigation pages exclude journal entries, topic pages, and homepage.
+/// Navigation pages exclude content collection entries, topic pages, and homepage.
 /// These pages show their titles in the navigation, so content titles become redundant.
-pub fn is_navigation_page(url_path: &str) -> bool {
-    !url_path.starts_with("journal/") && 
-    !url_path.starts_with("topics/") && 
+pub fn is_navigation_page(url_path: &str, content_folders: &[String]) -> bool {
+    // Check if it's a content collection page
+    for folder in content_folders {
+        if url_path.starts_with(&format!("{}/", folder)) {
+            return false;
+        }
+    }
+
+    // Exclude topic pages and homepage
+    !url_path.starts_with("topics/") &&
     url_path != "index.html"
 }
 
@@ -1022,23 +1150,86 @@ mod tests {
 
     #[test]
     fn test_extract_date_from_path() {
+        let content_folders = vec!["journal".to_string(), "posts".to_string()];
+
         // Test journal path extraction
-        let date = extract_date_from_path("journal/2025-01-15.html", None);
+        let date = extract_date_from_path("journal/2025-01-15.html", None, &content_folders);
         assert_eq!(date, "2025 · 01");
-        
-        let date = extract_date_from_path("journal/2024-12-31.html", None);
+
+        let date = extract_date_from_path("journal/2024-12-31.html", None, &content_folders);
         assert_eq!(date, "2024 · 12");
-        
-        // Test non-journal path
-        let date = extract_date_from_path("about.html", None);
+
+        // Test posts path extraction
+        let date = extract_date_from_path("posts/2025-01-15.html", None, &content_folders);
+        assert_eq!(date, "2025 · 01");
+
+        // Test non-content folder path
+        let date = extract_date_from_path("about.html", None, &content_folders);
         assert_eq!(date, "Unknown");
-        
-        // Test invalid journal path (function extracts first two parts separated by dashes)
-        let date = extract_date_from_path("journal/invalid-name.html", None);
+
+        // Test invalid content folder path (function extracts first two parts separated by dashes)
+        let date = extract_date_from_path("journal/invalid-name.html", None, &content_folders);
         assert_eq!(date, "invalid · name");
-        
-        // Test completely invalid journal path (only one part, needs at least 2)
-        let date = extract_date_from_path("journal/nodashes.html", None);
+
+        // Test completely invalid content folder path (only one part, needs at least 2)
+        let date = extract_date_from_path("journal/nodashes.html", None, &content_folders);
         assert_eq!(date, "Unknown");
+    }
+
+    #[test]
+    fn test_transform_markdown_link() {
+        // Test basic .md to .html transformation
+        assert_eq!(transform_markdown_link("./roadmap.md"), "./roadmap.html");
+        assert_eq!(transform_markdown_link("roadmap.md"), "roadmap.html");
+        assert_eq!(transform_markdown_link("../roadmap.md"), "../roadmap.html");
+
+        // Test .markdown to .html transformation
+        assert_eq!(transform_markdown_link("./file.markdown"), "./file.html");
+        assert_eq!(transform_markdown_link("docs/README.markdown"), "docs/README.html");
+
+        // Test fragment preservation
+        assert_eq!(transform_markdown_link("file.md#section"), "file.html#section");
+        assert_eq!(transform_markdown_link("./docs/api.md#overview"), "./docs/api.html#overview");
+        assert_eq!(transform_markdown_link("../guide.md#getting-started"), "../guide.html#getting-started");
+
+        // Test that external URLs are not transformed
+        assert_eq!(transform_markdown_link("https://example.com/file.md"), "https://example.com/file.md");
+        assert_eq!(transform_markdown_link("http://example.com/docs.md"), "http://example.com/docs.md");
+        assert_eq!(transform_markdown_link("//cdn.example.com/file.md"), "//cdn.example.com/file.md");
+
+        // Test that .html links are not transformed
+        assert_eq!(transform_markdown_link("./page.html"), "./page.html");
+        assert_eq!(transform_markdown_link("page.html#anchor"), "page.html#anchor");
+
+        // Test edge cases
+        assert_eq!(transform_markdown_link(""), "");
+        assert_eq!(transform_markdown_link("#anchor"), "#anchor");
+        assert_eq!(transform_markdown_link("./"), "./");
+        assert_eq!(transform_markdown_link("README"), "README");
+
+        // Test complex paths
+        assert_eq!(transform_markdown_link("./docs/guide/setup.md"), "./docs/guide/setup.html");
+        assert_eq!(transform_markdown_link("../../README.md"), "../../README.html");
+    }
+
+    #[test]
+    fn test_markdown_processing_transforms_links() {
+        let markdown = r#"# Test Document
+
+See the [roadmap](./roadmap.md) for details.
+Check out the [guide](docs/guide.md#setup) for setup instructions.
+Visit our [website](https://example.com/docs.md) for more info."#;
+
+        let result = process_markdown_file("test.md", markdown).expect("Should process markdown");
+
+        // Verify that .md links are transformed to .html
+        assert!(result.html_content.contains(r#"<a href="./roadmap.html">roadmap</a>"#),
+                "Should transform ./roadmap.md to ./roadmap.html");
+        assert!(result.html_content.contains(r#"<a href="docs/guide.html#setup">guide</a>"#),
+                "Should transform docs/guide.md#setup to docs/guide.html#setup");
+
+        // Verify that external URLs are not transformed
+        assert!(result.html_content.contains(r#"<a href="https://example.com/docs.md">website</a>"#),
+                "Should not transform external URLs");
     }
 }

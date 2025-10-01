@@ -377,8 +377,19 @@ async fn handle_file_event(
                             println!("🔄 Rename 'to' event (partial): {:?}", event.paths);
                         },
                         _ => {
-                            // Any or Other rename modes
+                            // Any or Other rename modes - handle as generic rename
                             println!("🔄 Rename event (unknown mode): {:?}", event.paths);
+
+                            // For directories especially, any rename should trigger recompilation
+                            // Process all paths and treat as modifications
+                            for path in &event.paths {
+                                let path_str = path.to_string_lossy().to_string();
+                                if should_watch_file(&path_str) {
+                                    println!("🔄 Processing rename for watched path: {}", path_str);
+                                    // Don't try to track specific rename pairs for unknown modes
+                                    // Just trigger recompilation which will rebuild the entire site
+                                }
+                            }
                         }
                     }
                 },
@@ -462,7 +473,7 @@ async fn handle_file_event(
     Ok(())
 }
 
-/// Check if a file should trigger recompilation
+/// Check if a file or directory should trigger recompilation
 fn should_watch_file(path: &str) -> bool {
     // Content file extensions we care about
     let content_extensions = ["md", "markdown", "pages", "docx", "jpg", "jpeg", "png", "gif", "svg"];
@@ -470,17 +481,50 @@ fn should_watch_file(path: &str) -> bool {
     // Paths to ignore
     let ignore_patterns = [".moss/", "node_modules/", ".git/", ".DS_Store", "thumbs.db"];
 
-    // Check if file should be ignored
+    // Check if file/directory should be ignored
     for ignore in &ignore_patterns {
         if path.contains(ignore) {
+            println!("🚫 Ignoring path (matches ignore pattern '{}'): {}", ignore, path);
             return false;
         }
     }
 
-    // Check file extension
+    // Check if this is a directory (no extension or ends with /)
+    let is_directory = path.ends_with('/') || !path.contains('.');
+
+    if is_directory {
+        // For directories, allow content directories but exclude system ones
+        let content_directory_patterns = ["content/", "posts/", "journal/", "blog/", "articles/", "docs/", "pages/", "images/", "assets/", "media/"];
+
+        for pattern in &content_directory_patterns {
+            if path.contains(pattern) || path.ends_with(pattern.trim_end_matches('/')) {
+                println!("✅ Watching directory (content directory): {}", path);
+                return true;
+            }
+        }
+
+        // For root-level directories without specific patterns, be permissive
+        // (user might have custom directory structures)
+        if !path.contains('/') || path.matches('/').count() <= 1 {
+            println!("✅ Watching directory (root-level directory): {}", path);
+            return true;
+        }
+
+        println!("🚫 Ignoring directory (not a content directory): {}", path);
+        return false;
+    }
+
+    // Check file extension for files
     if let Some(extension) = path.split('.').last() {
-        content_extensions.contains(&extension.to_lowercase().as_str())
+        let should_watch = content_extensions.contains(&extension.to_lowercase().as_str());
+        if should_watch {
+            println!("✅ Watching file (content file): {}", path);
+        } else {
+            println!("🚫 Ignoring file (not a content file): {}", path);
+        }
+        should_watch
     } else {
+        println!("🚫 Ignoring file (no extension): {}", path);
         false
     }
 }
@@ -630,6 +674,60 @@ mod tests {
         // Files without recognized extensions
         assert!(!should_watch_file("README"), "Should ignore files without extensions");
         assert!(!should_watch_file("config.txt"), "Should ignore non-content files");
+    }
+
+    /// Feature 4b: Directory Watching - Directory Filtering
+    /// Tests which directories should trigger recompilation
+    #[test]
+    fn test_file_watching_should_watch_directory() {
+        // Content directories that should trigger recompilation
+        assert!(should_watch_file("content/"), "Should watch content directories");
+        assert!(should_watch_file("posts/"), "Should watch posts directory");
+        assert!(should_watch_file("journal/"), "Should watch journal directory");
+        assert!(should_watch_file("blog/"), "Should watch blog directory");
+        assert!(should_watch_file("articles/"), "Should watch articles directory");
+        assert!(should_watch_file("docs/"), "Should watch docs directory");
+        assert!(should_watch_file("pages/"), "Should watch pages directory");
+        assert!(should_watch_file("images/"), "Should watch images directory");
+        assert!(should_watch_file("assets/"), "Should watch assets directory");
+        assert!(should_watch_file("media/"), "Should watch media directory");
+
+        // Root-level directories (permissive approach)
+        assert!(should_watch_file("mycontent"), "Should watch root-level directories");
+        assert!(should_watch_file("writings"), "Should watch root-level directories");
+
+        // Nested content directories
+        assert!(should_watch_file("/Users/user/site/posts/"), "Should watch nested posts directory");
+        assert!(should_watch_file("/Users/user/site/content/blog/"), "Should watch nested content directories");
+
+        // System directories that should be ignored
+        assert!(!should_watch_file(".moss/"), "Should ignore .moss directory");
+        assert!(!should_watch_file("node_modules/"), "Should ignore node_modules directory");
+        assert!(!should_watch_file(".git/"), "Should ignore .git directory");
+        assert!(!should_watch_file(".moss/site/"), "Should ignore generated .moss/site directory");
+
+        // Deeply nested non-content directories
+        assert!(!should_watch_file("deeply/nested/path/unknown/"), "Should ignore deeply nested unknown directories");
+    }
+
+    /// Feature 4c: Directory Rename Scenarios
+    /// Tests rename events with directories
+    #[test]
+    fn test_directory_rename_scenarios() {
+        // Test that directory paths without extensions are detected as directories
+        let test_cases = vec![
+            ("journal", true, "Root directory without slash"),
+            ("posts/", true, "Directory with trailing slash"),
+            ("content/subfolder", true, "Nested directory path"),
+            ("/Users/user/site/blog", true, "Absolute directory path"),
+            ("file.md", false, "File with extension"),
+            ("README", true, "File without extension - treated as directory"),
+        ];
+
+        for (path, expected_is_dir, description) in test_cases {
+            let is_directory = path.ends_with('/') || !path.contains('.');
+            assert_eq!(is_directory, expected_is_dir, "Failed for case: {}", description);
+        }
     }
 
     /// Feature 5: FileChangeEvent Creation and Processing

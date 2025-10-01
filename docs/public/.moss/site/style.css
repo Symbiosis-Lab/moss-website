@@ -406,7 +406,7 @@ html[data-theme="dark"] .theme-toggle .moon-icon {
 .breadcrumb {
     font-size: 1.1em;
     color: var(--moss-text-muted);
-    margin-bottom: 1.5em;
+    margin-bottom: 0; /* No margin when inside article-header */
 }
 
 .breadcrumb a {
@@ -418,6 +418,22 @@ html[data-theme="dark"] .theme-toggle .moon-icon {
 .breadcrumb a:hover {
     color: var(--moss-accent);
     text-decoration: underline;
+}
+
+/* Article Header - Breadcrumb and Date stacked vertically */
+.article-header {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    margin-bottom: 1.5em;
+    gap: var(--moss-space-sm);
+}
+
+.article-date {
+    color: var(--moss-text-muted);
+    font-size: 1.1em;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 /* Main Content - Minimal like stephango.com */
@@ -449,6 +465,11 @@ article {
 /* Date styling for listings and inline references */
 .date {
     color: var(--moss-text-muted);
+}
+
+/* Article date at top of content */
+.main-content > p:first-child {
+    margin-bottom: var(--moss-space-lg);
 }
 
 /* Page Layout */
@@ -702,13 +723,17 @@ hr {
         --moss-font-2xl: 1.5rem;        /* 24px - H2 on mobile */
         --moss-font-3xl: 1.75rem;       /* 28px - H1 on mobile */
     }
-    
+
     body {
         padding: var(--moss-space-md);
     }
-    
+
     main {
         padding: var(--moss-space-lg);
+    }
+
+    .article-date {
+        font-size: 1em;
     }
 }
 

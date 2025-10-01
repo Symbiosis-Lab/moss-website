@@ -10,6 +10,16 @@ A tiny desktop app that turns any folder into a website. Right-click, publish, d
 
 Your files stay on your computer. Your site lives on your domain. Your audience remains yours.
 
+## Philosophy
+
+Like its namesake, moss thrives in the spaces others overlook. It doesn't compete with platforms for sunlight. It creates the foundation layer that enables an entire ecosystem.
+
+## Protocols
+
+- **Micropub** for submissions
+- **ActivityPub** for federated social
+- **WebMention** for pingbacks
+
 ## Current Capabilities
 
 ✅ **Phase 0:**
@@ -17,3 +27,5 @@ Your files stay on your computer. Your site lives on your domain. Your audience 
 - default theme with responsive design ✅
 - one-click site generation & preview ✅
 - zero config hosting 📋
+
+See more at [roadmap](./roadmap.md).

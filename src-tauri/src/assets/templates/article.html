@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{title} - {site_name}</title>
+    {favicon}
     <link rel="stylesheet" href="../style.css">
 </head>
 <body>
@@ -17,12 +18,12 @@
 
     <div class="page-wrapper">
         <div class="container">
-            {breadcrumb}
+            <div class="article-header">
+                {breadcrumb}
+            </div>
             <div class="main-content">
+                <p><span class="date">{formatted_date}</span></p>
                 <article>
-                    <div class="article-meta">
-                        <time datetime="{date}">{formatted_date}</time>
-                    </div>
                     {content}
                 </article>
             </div>
