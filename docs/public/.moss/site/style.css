@@ -23,13 +23,13 @@
     --moss-code-accent-tertiary: #8a8580;   /* muted brown - scripting */
     --moss-code-accent-quaternary: #6b5b4f; /* deeper brown - config/data */
     
-    /* Typography Scale */
+    /* Typography Scale - Optimized for long-form reading (1.2-1.3 ratio) */
     --moss-font-base: 1.125rem;     /* 18px - optimal for long-form reading */
     --moss-font-sm: 1rem;           /* 16px */
     --moss-font-lg: 1.25rem;        /* 20px */
-    --moss-font-xl: 1.5rem;         /* 24px */
-    --moss-font-2xl: 2rem;          /* 32px */
-    --moss-font-3xl: 2.5rem;        /* 40px */
+    --moss-font-xl: 1.375rem;       /* 22px - subtle H3 */
+    --moss-font-2xl: 1.625rem;      /* 26px - non-distracting H2 */
+    --moss-font-3xl: 2rem;          /* 32px - article H1 */
     
     /* Spacing Scale (8pt grid) */
     --moss-space-xs: 0.5rem;        /* 8px */
@@ -286,21 +286,21 @@ a:hover, a:focus {
     transition: all 0.2s ease;
 }
 
-/* Toggle icon visibility based on theme */
+/* Toggle icon visibility based on theme - show call-to-action icon */
 .theme-toggle .sun-icon {
-    display: block;
+    display: none;
 }
 
 .theme-toggle .moon-icon {
-    display: none;
+    display: block;
 }
 
 html[data-theme="dark"] .theme-toggle .sun-icon {
-    display: none;
+    display: block;
 }
 
 html[data-theme="dark"] .theme-toggle .moon-icon {
-    display: block;
+    display: none;
 }
 
 /* Mobile Hamburger Menu */
@@ -404,9 +404,9 @@ html[data-theme="dark"] .theme-toggle .moon-icon {
 
 /* Breadcrumb Navigation */
 .breadcrumb {
-    font-size: var(--moss-font-sm);
+    font-size: 1.1em;
     color: var(--moss-text-muted);
-    margin-bottom: var(--moss-space-sm);
+    margin-bottom: 1.5em;
 }
 
 .breadcrumb a {
@@ -434,6 +434,21 @@ article {
 /* Allow full width in page grid layout */
 .page-wrapper article {
     max-width: none;
+}
+
+/* Article metadata (date) spacing and color */
+.article-meta {
+    margin-bottom: var(--moss-space-md);
+}
+
+.article-meta time {
+    color: var(--moss-text-muted);
+    font-size: var(--moss-font-base);
+}
+
+/* Date styling for listings and inline references */
+.date {
+    color: var(--moss-text-muted);
 }
 
 /* Page Layout */
@@ -683,9 +698,9 @@ hr {
 /* Responsive Design */
 @media (max-width: 48rem) {
     :root {
-        --moss-font-base: 1rem;
-        --moss-font-2xl: 1.75rem;
-        --moss-font-3xl: 2rem;
+        --moss-font-base: 1rem;         /* 16px on mobile */
+        --moss-font-2xl: 1.5rem;        /* 24px - H2 on mobile */
+        --moss-font-3xl: 1.75rem;       /* 28px - H1 on mobile */
     }
     
     body {
