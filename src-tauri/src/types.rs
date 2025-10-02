@@ -181,6 +181,8 @@ pub struct ParsedDocument {
     pub weight: Option<i32>,
     /// GitHub repository URL for site-wide navigation
     pub github: Option<String>,
+    /// Scripts to inject into <head> section (e.g., analytics)
+    pub head_scripts: Option<String>,
 }
 
 /// State management for tracking active preview servers.

@@ -1,5 +1,6 @@
 ---
 github: https://github.com/symbiosis-lab/moss
+head_scripts: '<script defer data-domain="moss.host" src="https://plausible.io/js/script.js"></script>'
 ---
 
 # moss

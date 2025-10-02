@@ -144,6 +144,7 @@ pub struct TemplateVars {
     pub topics_section: Option<String>,
     pub breadcrumb: Option<String>,
     pub favicon: Option<String>,
+    pub head_scripts: Option<String>,
     // Article-specific variables
     pub site_name: Option<String>,
     pub date: Option<String>,
@@ -167,7 +168,7 @@ impl TemplateProcessor {
     /// Process template with variables and return HTML
     pub fn process(&self, template_type: TemplateType, vars: TemplateVars) -> String {
         let template = self.registry.get_template(template_type);
-        
+
         let mut result = template
             .replace("{title}", &vars.title)
             .replace("{css_path}", &vars.css_path)
@@ -181,6 +182,7 @@ impl TemplateProcessor {
         result = result.replace("{topics_section}", &vars.topics_section.unwrap_or_default());
         result = result.replace("{breadcrumb}", &vars.breadcrumb.unwrap_or_default());
         result = result.replace("{favicon}", &vars.favicon.unwrap_or_default());
+        result = result.replace("{head_scripts}", &vars.head_scripts.unwrap_or_default());
 
         // Article-specific variables
         result = result.replace("{site_name}", &vars.site_name.unwrap_or_default());
@@ -206,6 +208,8 @@ pub struct FrontMatter {
     pub weight: Option<i32>,
     /// GitHub repository URL for site-wide navigation
     pub github: Option<String>,
+    /// Scripts to inject into <head> section (e.g., analytics)
+    pub head_scripts: Option<String>,
 }
 
 /// Generates a static website from scanned folder contents.
@@ -322,6 +326,7 @@ pub fn generate_static_site(source_path: &str, project_structure: &ProjectStruct
                 } else {
                     None
                 },
+                head_scripts: None,
                 // Article-specific variables (not used for topics)
                 site_name: None,
                 date: None,
@@ -384,6 +389,7 @@ pub fn generate_static_site(source_path: &str, project_structure: &ProjectStruct
                     } else {
                         None
                     },
+                    head_scripts: None,
                     // Article-specific variables (not used for collection index)
                     site_name: None,
                     date: None,
@@ -418,6 +424,19 @@ pub fn generate_static_site(source_path: &str, project_structure: &ProjectStruct
 
         if let Some(parent) = dest_file.parent() {
             fs::create_dir_all(parent).map_err(|e| format!("Failed to create image directory: {}", e))?;
+        }
+
+        if let Err(_e) = fs::copy(&source_file, &dest_file) {
+        }
+    }
+
+    // Copy other files (CNAME, robots.txt, etc.) to output root
+    for file_info in &project_structure.other_files {
+        let source_file = Path::new(source_path).join(&file_info.path);
+        let dest_file = output_dir.join(&file_info.path);
+
+        if let Some(parent) = dest_file.parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory for other files: {}", e))?;
         }
 
         if let Err(_e) = fs::copy(&source_file, &dest_file) {
@@ -515,6 +534,7 @@ pub fn process_markdown_file(file_path: &str, content: &str) -> Result<ParsedDoc
         .replace("_", " ");
     
     // Convert markdown to HTML first to extract H1
+    // HTML is preserved by default in pulldown-cmark
     let mut options = Options::empty();
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_TABLES);
@@ -593,6 +613,9 @@ pub fn process_markdown_file(file_path: &str, content: &str) -> Result<ParsedDoc
     // Extract github URL from frontmatter
     let github = frontmatter.github;
 
+    // Extract head scripts from frontmatter
+    let head_scripts = frontmatter.head_scripts;
+
     // Calculate reading time (200 words per minute)
     let word_count = result.content.split_whitespace().count();
     let reading_time = std::cmp::max(1, (word_count / 200) as u32);
@@ -621,6 +644,7 @@ pub fn process_markdown_file(file_path: &str, content: &str) -> Result<ParsedDoc
         display_title,
         weight,
         github,
+        head_scripts,
     })
 }
 
@@ -642,6 +666,10 @@ pub fn generate_html(
 
     let github_url = homepage_doc
         .and_then(|d| d.github.as_ref())
+        .map(|s| s.as_str());
+
+    let head_scripts = homepage_doc
+        .and_then(|d| d.head_scripts.as_ref())
         .map(|s| s.as_str());
 
     // Calculate depth for path adjustments
@@ -774,6 +802,7 @@ pub fn generate_html(
         } else {
             None
         },
+        head_scripts: head_scripts.map(|s| s.to_string()),
         // Article-specific variables
         site_name: if is_article_page { Some(site_title.clone()) } else { None },
         date: if is_article_page && doc.is_some() { doc.unwrap().date.clone() } else { None },

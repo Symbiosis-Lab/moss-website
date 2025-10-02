@@ -347,7 +347,11 @@ weight: number | null;
 /**
  * GitHub repository URL for site-wide navigation
  */
-github: string | null }
+github: string | null; 
+/**
+ * Scripts to inject into <head> section (e.g., analytics)
+ */
+head_scripts: string | null }
 /**
  * Metadata extracted from the preview content
  */
