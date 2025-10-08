@@ -37,7 +37,7 @@ impl GitHubPages {
     /// * `Err(String)` - Error message if deployment fails
     pub async fn deploy_to_pages(&self, folder_path: &Path) -> Result<String, String> {
         // Validate that the site has been built
-        let site_path = folder_path.join(".moss/site");
+        let site_path = folder_path.join(".moss/docs");
         if !site_path.exists() {
             return Err("Built site not found. Please build the site first.".to_string());
         }
@@ -49,7 +49,7 @@ impl GitHubPages {
 
         // For now, return a mock deployment
         // In a full implementation, this would:
-        // 1. Copy files from .moss/site to root or docs/ folder
+        // 1. Copy files from .moss/docs to root or docs/ folder
         // 2. Git add, commit, and push
         // 3. Enable GitHub Pages via GitHub API
         // 4. Return the GitHub Pages URL
@@ -79,10 +79,10 @@ impl GitHubPages {
     /// We use the root directory approach for simplicity.
     #[allow(dead_code)]
     fn copy_site_files(&self, folder_path: &Path, site_path: &Path) -> Result<(), String> {
-        // Copy all files from .moss/site to project root
+        // Copy all files from .moss/docs to project root
         // Exclude .moss directory and other development files
-        
-        // Copy files from .moss/site to project root
+
+        // Copy files from .moss/docs to project root
         // This is a simplified implementation - production version should:
         // - Check for conflicts with existing files
         // - Preserve important files like README.md, .gitignore

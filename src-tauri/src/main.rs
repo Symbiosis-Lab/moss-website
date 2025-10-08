@@ -236,13 +236,44 @@ pub fn run() {
 
             // Load moss icon for tray (19x19 PNG template)
             // Uses template format for automatic dark/light mode adaptation on macOS
-            let icon = match Image::from_path("icons/menu-bar/MenuBarIconTemplate.png") {
+            let exe_dir = std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|p| p.to_path_buf()));
+
+            let icon_path = if let Some(exe_dir) = exe_dir {
+                // Try bundled resource paths (production)
+                // Load @2x version for Retina display support
+                // macOS will automatically scale down for non-Retina displays
+                let bundled_path = exe_dir.join("../Resources/icons/menu-bar/MenuBarIconTemplate@2x.png");
+                if bundled_path.exists() {
+                    bundled_path
+                } else {
+                    // Fallback: try 1x version
+                    let bundled_1x = exe_dir.join("../Resources/icons/menu-bar/MenuBarIconTemplate.png");
+                    if bundled_1x.exists() {
+                        bundled_1x
+                    } else {
+                        // Fallback: try _up_ path (shouldn't happen but for compatibility)
+                        let up_path = exe_dir.join("../Resources/_up_/icons/menu-bar/MenuBarIconTemplate@2x.png");
+                        if up_path.exists() {
+                            up_path
+                        } else {
+                            // Final fallback: development path (@2x preferred)
+                            std::path::PathBuf::from("icons/menu-bar/MenuBarIconTemplate@2x.png")
+                        }
+                    }
+                }
+            } else {
+                std::path::PathBuf::from("icons/menu-bar/MenuBarIconTemplate@2x.png")
+            };
+
+            let icon = match Image::from_path(&icon_path) {
                 Ok(img) => {
-                    println!("✅ Loaded moss icon for tray from icons/menu-bar/MenuBarIconTemplate.png");
+                    println!("✅ Loaded moss icon for tray from {}", icon_path.display());
                     img
                 },
                 Err(e) => {
-                    eprintln!("⚠️ Failed to load moss icon, falling back to programmatic icon: {}", e);
+                    eprintln!("⚠️ Failed to load moss icon from {}: {}", icon_path.display(), e);
                     
                     // Fallback: Generate programmatic tray icon (16x16 RGBA)
                     let mut icon_rgba = vec![0x00; 16 * 16 * 4];
@@ -577,7 +608,7 @@ fn run_cli_compile(folder_path: &str, serve: bool, watch: bool) {
                 rx.recv().expect("Could not receive from channel.");
                 println!("✅ Stopped");
             } else {
-                println!("✅ Compilation complete! Generated files are in .moss/site/");
+                println!("✅ Compilation complete! Generated files are in .moss/docs/");
                 println!("💡 Use --serve to start a local server, or --watch to watch for changes");
             }
         },

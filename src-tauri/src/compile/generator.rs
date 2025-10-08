@@ -233,21 +233,21 @@ pub struct FrontMatter {
 /// 5. Create CSS stylesheet with beautiful defaults
 pub fn generate_static_site(source_path: &str, project_structure: &ProjectStructure) -> Result<SiteResult, String> {
     
-    // Create output directory in source folder under .moss/site
+    // Create output directory in source folder under .moss/docs
     let source_path_buf = Path::new(source_path);
     let moss_dir = source_path_buf.join(".moss");
-    let output_dir = moss_dir.join("site");
+    let output_dir = moss_dir.join("docs");
     
     // Create .moss directory if it doesn't exist
     if !moss_dir.exists() {
         fs::create_dir_all(&moss_dir).map_err(|e| format!("Failed to create .moss directory: {}", e))?;
     }
     
-    // Clean and recreate site directory
+    // Clean and recreate docs directory
     if output_dir.exists() {
-        fs::remove_dir_all(&output_dir).map_err(|e| format!("Failed to clean site directory: {}", e))?;
+        fs::remove_dir_all(&output_dir).map_err(|e| format!("Failed to clean docs directory: {}", e))?;
     }
-    fs::create_dir_all(&output_dir).map_err(|e| format!("Failed to create site directory: {}", e))?;
+    fs::create_dir_all(&output_dir).map_err(|e| format!("Failed to create docs directory: {}", e))?;
 
     // Detect and copy favicon if assets/favicon.svg exists
     let favicon_source = Path::new(source_path).join("assets").join("favicon.svg");
@@ -305,6 +305,10 @@ pub fn generate_static_site(source_path: &str, project_structure: &ProjectStruct
             .and_then(|d| d.github.as_ref())
             .map(|s| s.as_str());
 
+        let head_scripts = homepage_doc
+            .and_then(|d| d.head_scripts.as_ref())
+            .map(|s| s.as_str());
+
         for topic in all_topics {
             let topic_content = generate_topic_page_content(&topic, &documents, project_structure);
             let path_resolver = PathResolver::new(1); // Topics are at depth 1
@@ -326,7 +330,7 @@ pub fn generate_static_site(source_path: &str, project_structure: &ProjectStruct
                 } else {
                     None
                 },
-                head_scripts: None,
+                head_scripts: head_scripts.map(|s| s.to_string()),
                 // Article-specific variables (not used for topics)
                 site_name: None,
                 date: None,
@@ -353,6 +357,10 @@ pub fn generate_static_site(source_path: &str, project_structure: &ProjectStruct
 
         let github_url = homepage_doc
             .and_then(|d| d.github.as_ref())
+            .map(|s| s.as_str());
+
+        let head_scripts = homepage_doc
+            .and_then(|d| d.head_scripts.as_ref())
             .map(|s| s.as_str());
 
         for folder_name in &project_structure.content_folders {
@@ -389,7 +397,7 @@ pub fn generate_static_site(source_path: &str, project_structure: &ProjectStruct
                     } else {
                         None
                     },
-                    head_scripts: None,
+                    head_scripts: head_scripts.map(|s| s.to_string()),
                     // Article-specific variables (not used for collection index)
                     site_name: None,
                     date: None,

@@ -16,7 +16,7 @@ pub fn validate_publish_request(state: &PreviewState) -> Result<(), String> {
     }
     
     // Check if the site has been built (should exist since preview window opened after build)
-    let site_path = state.folder_path.join(".moss/site");
+    let site_path = state.folder_path.join(".moss/docs");
     if !site_path.exists() {
         return Err("Built site not found. Please rebuild the site first.".to_string());
     }
@@ -134,7 +134,7 @@ mod tests {
     fn test_validate_publish_prevents_double_publish() {
         // Create a temporary directory structure for testing
         let temp_dir = std::env::temp_dir().join("moss_test_validate_publish");
-        let site_dir = temp_dir.join(".moss/site");
+        let site_dir = temp_dir.join(".moss/docs");
         std::fs::create_dir_all(&site_dir).unwrap();
         std::fs::write(site_dir.join("index.html"), "test content").unwrap();
         

@@ -665,14 +665,15 @@ mod tests {
         assert!(should_watch_file("styles/custom.svg"), "Should watch SVG files");
 
         // Generated/system files that should be ignored
-        assert!(!should_watch_file(".moss/site/index.html"), "Should ignore generated files");
+        assert!(!should_watch_file(".moss/docs/index.html"), "Should ignore generated files");
         assert!(!should_watch_file("node_modules/package/file.js"), "Should ignore node_modules");
         assert!(!should_watch_file(".git/config"), "Should ignore git files");
         assert!(!should_watch_file(".DS_Store"), "Should ignore system files");
         assert!(!should_watch_file("thumbs.db"), "Should ignore Windows thumbnails");
 
         // Files without recognized extensions
-        assert!(!should_watch_file("README"), "Should ignore files without extensions");
+        // Note: Root-level paths without extensions are treated as directories (permissive for custom structures)
+        assert!(should_watch_file("README"), "Root-level paths without extensions are treated as potential directories");
         assert!(!should_watch_file("config.txt"), "Should ignore non-content files");
     }
 
@@ -704,7 +705,7 @@ mod tests {
         assert!(!should_watch_file(".moss/"), "Should ignore .moss directory");
         assert!(!should_watch_file("node_modules/"), "Should ignore node_modules directory");
         assert!(!should_watch_file(".git/"), "Should ignore .git directory");
-        assert!(!should_watch_file(".moss/site/"), "Should ignore generated .moss/site directory");
+        assert!(!should_watch_file(".moss/docs/"), "Should ignore generated .moss/docs directory");
 
         // Deeply nested non-content directories
         assert!(!should_watch_file("deeply/nested/path/unknown/"), "Should ignore deeply nested unknown directories");

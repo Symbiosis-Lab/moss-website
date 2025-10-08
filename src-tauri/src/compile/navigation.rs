@@ -463,6 +463,7 @@ mod tests {
                 permalink: "/about.html".to_string(),
                 weight: Some(1),
                 github: None,
+                head_scripts: None,
             },
             ParsedDocument {
                 url_path: "posts/first-post.html".to_string(),
@@ -478,6 +479,7 @@ mod tests {
                 weight: None,
                 topics: vec![],
                 github: None,
+                head_scripts: None,
             },
             ParsedDocument {
                 url_path: "posts/second-post.html".to_string(),
@@ -493,6 +495,7 @@ mod tests {
                 weight: None,
                 topics: vec![],
                 github: None,
+                head_scripts: None,
             },
             ParsedDocument {
                 url_path: "contact.html".to_string(),
@@ -508,6 +511,7 @@ mod tests {
                 weight: Some(2),
                 topics: vec![],
                 github: None,
+                head_scripts: None,
             },
             ParsedDocument {
                 url_path: "index.html".to_string(),
@@ -523,6 +527,7 @@ mod tests {
                 weight: None,
                 topics: vec![],
                 github: None,
+                head_scripts: None,
             },
         ];
 
@@ -570,6 +575,7 @@ mod tests {
                 weight: None,
                 topics: vec![],
                 github: None,
+                head_scripts: None,
             },
             ParsedDocument {
                 url_path: "blog/article.html".to_string(),
@@ -585,6 +591,7 @@ mod tests {
                 weight: None,
                 topics: vec![],
                 github: None,
+                head_scripts: None,
             },
             ParsedDocument {
                 url_path: "docs/guide.html".to_string(),
@@ -600,6 +607,7 @@ mod tests {
                 weight: None,
                 topics: vec![],
                 github: None,
+                head_scripts: None,
             },
         ];
 
@@ -643,6 +651,7 @@ mod tests {
                 weight: None,
                 topics: vec![],
                 github: None,
+                head_scripts: None,
             },
         ];
 
@@ -682,6 +691,7 @@ mod tests {
                 weight: None,
                 topics: vec![],
                 github: None,
+                head_scripts: None,
             },
             ParsedDocument {
                 url_path: "about.html".to_string(),
@@ -697,6 +707,7 @@ mod tests {
                 weight: None,
                 topics: vec![],
                 github: None,
+                head_scripts: None,
             },
         ];
 
@@ -740,6 +751,7 @@ mod tests {
                 permalink: "/posts/recent-post.html".to_string(),
                 weight: None,
                 github: None,
+                head_scripts: None,
             },
             ParsedDocument {
                 url_path: "journal/diary-entry.html".to_string(),
@@ -755,6 +767,7 @@ mod tests {
                 permalink: "/journal/diary-entry.html".to_string(),
                 weight: None,
                 github: None,
+                head_scripts: None,
             },
             ParsedDocument {
                 url_path: "about.html".to_string(),
@@ -770,6 +783,7 @@ mod tests {
                 permalink: "/about.html".to_string(),
                 weight: None,
                 github: None,
+                head_scripts: None,
             },
         ];
 

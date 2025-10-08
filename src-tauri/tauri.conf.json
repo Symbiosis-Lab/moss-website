@@ -44,7 +44,8 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "../resources"
+      "../resources",
+      "icons/menu-bar"
     ],
     "longDescription": "Right-click to publish. Keep your content portable.",
     "shortDescription": "Right-click to publish",
