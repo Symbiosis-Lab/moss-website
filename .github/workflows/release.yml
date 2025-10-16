@@ -9,6 +9,8 @@ on:
 jobs:
   build-and-release:
     runs-on: macos-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -53,50 +55,34 @@ jobs:
       - name: Build Tauri app (Universal Binary)
         run: tauri build --target universal-apple-darwin
 
-      - name: Extract version from tag
-        id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref }}
-          release_name: moss v${{ steps.version.outputs.VERSION }}
           body: |
-            ## Changes in v${{ steps.version.outputs.VERSION }}
+            ## Download
 
-            ### Download
-            - **macOS**: Download the `.dmg` file below
+            **macOS Universal Binary** (Intel + Apple Silicon):
+            - Download the `.dmg` file below for easy installation
+            - Or download the `.app.tar.gz` for manual installation
 
-            ### Installation
-            1. Download the `.dmg` file
+            ## Installation
+
+            ### Using DMG (Recommended)
+            1. Download `moss_*_macOS.dmg`
             2. Open the downloaded file
             3. Drag moss.app to your Applications folder
 
+            ### Using App Bundle
+            1. Download `moss_*_macOS.app.tar.gz`
+            2. Extract the archive
+            3. Move moss.app to your Applications folder
+
             ---
-            *Built automatically from commit ${{ github.sha }}*
+            **Built with:** Universal macOS binary (Intel + Apple Silicon)
+            **Commit:** ${{ github.sha }}
+          files: |
+            src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz
           draft: false
           prerelease: false
-
-      - name: Upload DMG to Release
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/moss_${{ steps.version.outputs.VERSION }}_universal.dmg
-          asset_name: moss_v${{ steps.version.outputs.VERSION }}_macOS.dmg
-          asset_content_type: application/octet-stream
-
-      - name: Upload App Bundle to Release
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: src-tauri/target/universal-apple-darwin/release/bundle/macos/moss.app.tar.gz
-          asset_name: moss_v${{ steps.version.outputs.VERSION }}_macOS.app.tar.gz
-          asset_content_type: application/gzip
+          generate_release_notes: true
