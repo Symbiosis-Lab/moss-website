@@ -23,6 +23,8 @@ mod types;
 mod compile;
 mod preview;
 mod system;
+mod window_manager;
+mod services;
 
 #[cfg(debug_assertions)]
 const REGENERATE_TYPES: bool = true;
@@ -113,42 +115,81 @@ pub fn extract_path_from_deep_link(url: &str) -> Option<String> {
 }
 
 /// Handles deep link URLs by building the site and opening appropriate preview
-/// 
+///
 /// Workflow: Build → Preview → (user can then Publish/Syndicate)
 /// Processes URLs in the format: `moss://publish?path=<encoded_path>`
 /// If main window exists, uses that for preview; otherwise creates separate preview window
 fn handle_deep_link_url(app: &tauri::AppHandle, url: &str) {
+    // Debug: Write to file to track deep link handling
+    let debug_msg = format!("[{}] handle_deep_link_url called with URL: {}\n",
+        chrono::Local::now().format("%Y-%m-%d %H:%M:%S"), url);
+    let _ = std::fs::write("/tmp/moss_deep_link_debug.log", &debug_msg);
+    println!("🔧 Deep link URL received: {}", url);
+
     if let Some(folder_path) = extract_path_from_deep_link(url) {
-        
+        let debug_msg = format!("[{}] Extracted folder path: {}\n",
+            chrono::Local::now().format("%Y-%m-%d %H:%M:%S"), folder_path);
+        let _ = std::fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open("/tmp/moss_deep_link_debug.log")
+            .and_then(|mut f| std::io::Write::write_all(&mut f, debug_msg.as_bytes()));
+
         // Check if main window exists (user opened settings)
         if let Some(_main_window) = app.get_webview_window("main") {
             // Main window exists, use the unified frontend-backend communication
             println!("🔧 Main window detected, using frontend compilation flow");
-            
+            let _ = std::fs::OpenOptions::new()
+                .append(true)
+                .open("/tmp/moss_deep_link_debug.log")
+                .and_then(|mut f| std::io::Write::write_all(&mut f, b"Main window exists, delegating to frontend\n"));
+
             // The main window will handle this through frontend deep link processing
             // No additional action needed here as frontend will call compile_folder
             return;
         }
-        
-        // No main window, use the original separate preview window approach
-        println!("🔧 No main window, using separate preview window flow");
 
-        // Note: Deep link preview window creation is no longer supported
-        // All deep links now use the main window flow
-        println!("⚠️ Deep link preview windows not supported, redirecting to folder picker");
+        // No main window exists, create one with the deep link folder path
+        println!("🔧 Received deep link for folder: {}", folder_path);
+        let _ = std::fs::OpenOptions::new()
+            .append(true)
+            .open("/tmp/moss_deep_link_debug.log")
+            .and_then(|mut f| std::io::Write::write_all(&mut f, b"No main window, creating preview window\n"));
 
-        // Instead of creating a preview window, trigger the folder picker flow
+        // Use shared window creation logic with proper activation policy handling
+        // Spawn async task to handle the async compile_with_preview_window function
         let app_handle = app.clone();
-        tokio::spawn(async move {
-            match compile_with_directory_picker(app_handle).await {
-                Ok(result) => {
-                    println!("✅ Folder picker compilation completed: {}", result);
-                },
-                Err(error) => {
-                    eprintln!("❌ Folder picker compilation failed: {}", error);
+        let folder_path_owned = folder_path.clone();
+        tauri::async_runtime::spawn(async move {
+            let _ = std::fs::OpenOptions::new()
+                .append(true)
+                .open("/tmp/moss_deep_link_debug.log")
+                .and_then(|mut f| std::io::Write::write_all(&mut f, b"Async task started\n"));
+
+            match system::compile_with_preview_window(&app_handle, &folder_path_owned).await {
+                Ok(_window) => {
+                    println!("✅ Deep link preview window created successfully");
+                    let _ = std::fs::OpenOptions::new()
+                        .append(true)
+                        .open("/tmp/moss_deep_link_debug.log")
+                        .and_then(|mut f| std::io::Write::write_all(&mut f, b"SUCCESS: Window created\n"));
+                }
+                Err(e) => {
+                    eprintln!("❌ Failed to create deep link preview window: {}", e);
+                    let debug_msg = format!("ERROR: {}\n", e);
+                    let _ = std::fs::OpenOptions::new()
+                        .append(true)
+                        .open("/tmp/moss_deep_link_debug.log")
+                        .and_then(|mut f| std::io::Write::write_all(&mut f, debug_msg.as_bytes()));
                 }
             }
         });
+    } else {
+        let _ = std::fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open("/tmp/moss_deep_link_debug.log")
+            .and_then(|mut f| std::io::Write::write_all(&mut f, b"Failed to extract path from deep link\n"));
     }
 }
 
@@ -177,7 +218,17 @@ pub fn run() {
             // Configure macOS-specific behavior: prevent dock icon, stay in tray only
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
-            
+
+            // Register NSServices handler for context menu "Publish" integration
+            #[cfg(target_os = "macos")]
+            {
+                if let Err(e) = services::init(&app.handle()) {
+                    eprintln!("⚠️  Failed to register NSServices: {}", e);
+                } else {
+                    println!("✅ NSServices initialized");
+                }
+            }
+
             // Register deep links at runtime for development mode (Linux/Windows only)
             // Note: This code is intentionally inactive on macOS - deep links are registered via Info.plist
             #[cfg(any(target_os = "linux", all(debug_assertions, target_os = "windows")))]

@@ -14,13 +14,27 @@ use std::fs;
 use std::sync::Mutex;
 use tauri::Manager;
 
+/// Delay in milliseconds required for macOS activation policy changes to propagate
+///
+/// When switching between Accessory and Regular activation policies, macOS needs time to:
+/// - Update application state in the system
+/// - Register/unregister dock icon
+/// - Prepare window server for proper window display
+/// - Update focus management
+///
+/// This value is empirically determined from `compile_with_directory_picker` working behavior.
+/// Without this delay, windows may appear in a limbo state without proper dock icon or focus.
+///
+/// See: https://developer.apple.com/documentation/appkit/nsapplication/activationpolicy
+pub const ACTIVATION_POLICY_DELAY_MS: u64 = 100;
+
 /// Extract the last two directory levels from a path for display purposes
 ///
 /// Examples:
 /// - "/Users/username/Documents/my-blog" -> "Documents/my-blog"
 /// - "/home/user/projects" -> "user/projects"
 /// - "/single" -> "single"
-fn get_short_path(path: &str) -> String {
+pub fn get_short_path(path: &str) -> String {
     let path_buf = std::path::Path::new(path);
     let components: Vec<_> = path_buf.components().collect();
 
@@ -49,6 +63,176 @@ fn get_short_path(path: &str) -> String {
             } else {
                 last_two.join("/")
             }
+        }
+    }
+}
+
+/// Validates that a folder path exists and is a directory
+///
+/// Pure business logic function for path validation.
+/// Used by compilation workflow to fail fast on invalid inputs.
+///
+/// # Arguments
+/// * `path` - String path to validate
+///
+/// # Returns
+/// * `Ok(())` - Path exists and is a directory
+/// * `Err(String)` - Path is invalid with descriptive error message
+///
+/// # Examples
+/// ```
+/// let result = validate_folder_path("/tmp");
+/// assert!(result.is_ok());
+///
+/// let result = validate_folder_path("");
+/// assert!(result.is_err());
+/// ```
+pub fn validate_folder_path(path: &str) -> Result<(), String> {
+    // Check for empty or whitespace-only path
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("Empty folder path provided".to_string());
+    }
+
+    // Check if path exists
+    let path_buf = Path::new(trimmed);
+    if !path_buf.exists() {
+        return Err(format!("Folder path does not exist: {}", trimmed));
+    }
+
+    // Check if path is a directory (not a file)
+    if !path_buf.is_dir() {
+        return Err(format!("Path is a file, not a directory: {}", trimmed));
+    }
+
+    Ok(())
+}
+
+/// Generates preview window title from folder path
+///
+/// Pure business logic function that creates user-friendly window titles
+/// by extracting the last two path components.
+///
+/// # Arguments
+/// * `folder_path` - Absolute path to folder being compiled
+///
+/// # Returns
+/// * Window title string in format "website preview of {path}"
+///
+/// # Examples
+/// ```
+/// let title = generate_preview_window_title("/Users/test/blog");
+/// assert_eq!(title, "website preview of test/blog");
+/// ```
+pub fn generate_preview_window_title(folder_path: &str) -> String {
+    format!("website preview of {}", get_short_path(folder_path))
+}
+
+/// Creates preview window with compilation configuration
+///
+/// Core shared logic for creating preview windows from both menu bar and deep link paths.
+/// Handles activation policy management, window creation, and configuration injection.
+///
+/// # Workflow
+/// 1. Validates folder path exists and is a directory
+/// 2. Switches to Regular activation policy for proper window display
+/// 3. Waits for policy change to propagate (ACTIVATION_POLICY_DELAY_MS)
+/// 4. Closes any existing "main" window
+/// 5. Creates new window with compile configuration injected
+/// 6. Shows and focuses the window
+///
+/// # Arguments
+/// * `app` - Tauri application handle for window management
+/// * `folder_path` - Absolute path to folder to compile
+///
+/// # Returns
+/// * `Ok(WebviewWindow)` - Successfully created and displayed window
+/// * `Err(String)` - Error with descriptive message (validation, policy, or window creation failure)
+///
+/// # Side Effects
+/// - Changes activation policy to Regular (adds dock icon)
+/// - Closes existing "main" window if present
+/// - On error, attempts to restore Accessory mode
+///
+/// # Integration Test Contract
+/// This function requires Tauri runtime and cannot be easily unit tested.
+/// Manual testing should verify:
+/// - ✅ Window appears with correct title
+/// - ✅ Dock icon appears (Regular activation policy active)
+/// - ✅ Window is visible and focused
+/// - ✅ Compilation starts automatically (frontend detects `__MOSS_COMPILE_CONFIG__`)
+/// - ✅ Invalid path returns Err without creating window
+///
+/// # Examples
+/// ```ignore
+/// // Called from menu bar publish:
+/// let window = compile_with_preview_window(&app, "/Users/test/blog").await?;
+///
+/// // Called from deep link:
+/// let window = compile_with_preview_window(&app, "/Users/test/blog").await?;
+/// ```
+pub async fn compile_with_preview_window(
+    app: &tauri::AppHandle,
+    folder_path: &str,
+) -> Result<tauri::WebviewWindow, String> {
+    // Step 1: Validate folder path (fail fast on invalid input)
+    validate_folder_path(folder_path)?;
+
+    // Step 2: Switch to Regular activation policy for proper window display
+    // (Accessory mode windows don't show in Mission Control or cmd+tab)
+    println!("🔧 Switching to Regular activation policy for preview window");
+    if let Err(e) = app.set_activation_policy(tauri::ActivationPolicy::Regular) {
+        eprintln!("⚠️ Failed to set Regular activation policy: {}", e);
+        // Continue anyway - window might still work, but may have issues
+    }
+
+    // Step 3: CRITICAL - Wait for activation policy change to propagate
+    // Without this delay, the window appears in limbo state without dock icon
+    // This delay matches the working behavior in compile_with_directory_picker
+    tokio::time::sleep(std::time::Duration::from_millis(ACTIVATION_POLICY_DELAY_MS)).await;
+
+    // Step 4: Close any existing main window to ensure clean state
+    if let Some(existing_window) = app.get_webview_window("main") {
+        println!("🔧 Closing existing preview window");
+        let _ = existing_window.close();
+    }
+
+    // Step 5: Generate initialization script with folder path
+    // This injects window.__MOSS_COMPILE_CONFIG__ for frontend to detect
+    let init_script = crate::window_manager::generate_compile_init_script(folder_path);
+
+    // Step 6: Generate user-friendly window title
+    let title = generate_preview_window_title(folder_path);
+
+    // Step 7: Create window with compile configuration injected
+    println!("🔧 Creating preview window: {}", title);
+    let window_result = tauri::WebviewWindowBuilder::new(
+        app,
+        "main",
+        tauri::WebviewUrl::App("index.html".into()),
+    )
+    .title(&title)
+    .fullscreen(true)
+    .resizable(true)
+    .center()
+    .initialization_script(&init_script)
+    .build();
+
+    // Step 8: Handle window creation result
+    match window_result {
+        Ok(window) => {
+            // Show and focus the window
+            let _ = window.show();
+            let _ = window.set_focus();
+            println!("✅ Preview window opened for: {}", folder_path);
+            Ok(window)
+        }
+        Err(e) => {
+            eprintln!("❌ Failed to create preview window: {}", e);
+            // Restore Accessory mode on error (remove dock icon)
+            println!("🔧 Restoring Accessory activation policy after window creation failure");
+            let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            Err(format!("Failed to create preview window: {}", e))
         }
     }
 }
@@ -394,46 +578,10 @@ pub async fn compile_with_directory_picker(app: tauri::AppHandle) -> Result<Stri
                 eprintln!("⚠️ Failed to save directory preference: {}", e);
             }
 
-            // Step 6: Close any existing windows and create a fresh main window
-            if let Some(existing_window) = app.get_webview_window("main") {
-                let _ = existing_window.close();
-            }
-
-            // Always create a new window with injected compile configuration
-            let init_script = format!(r#"
-              window.__MOSS_COMPILE_CONFIG__ = {{
-                folder_path: "{}",
-                auto_serve: true
-              }};
-            "#, path_str.replace("\\", "\\\\").replace("\"", "\\\""));
-
-            let window_result = tauri::WebviewWindowBuilder::new(
-                &app,
-                "main",
-                tauri::WebviewUrl::App("index.html".into())
-            )
-            .title(&format!("website preview of {}", get_short_path(&path_str)))
-            .fullscreen(true)
-            .resizable(true)
-            .center()
-            .initialization_script(init_script)
-            .build();
-
-            match window_result {
-                Ok(window) => {
-                    // Set up window event handler for close behavior
-                    // Window close handling: Let windows close naturally
-                    // App stays running due to persistent hidden anchor window (dialog_anchor)
-                    // This prevents "all windows closed" auto-exit behavior in Tauri v2
-                    // Reference: https://github.com/tauri-apps/tauri/issues/13511
-
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
-                Err(e) => {
-                    return Err(format!("Failed to create main window: {}", e));
-                }
-            }
+            // Step 6: Create preview window with compile configuration
+            // Use shared compile_with_preview_window function
+            // Note: This handles validation, activation policy delay, and window creation
+            compile_with_preview_window(&app, &path_str).await?;
 
             // Step 7: Window created with compile configuration injected
             Ok(format!("Directory selected: {}", path_buf.file_name().unwrap_or_default().to_string_lossy()))
@@ -495,5 +643,126 @@ pub async fn stop_all_preview_servers(app: tauri::AppHandle) -> Result<String, S
         }
     } else {
         Err("Server state not initialized".to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Test suite for validate_folder_path
+    /// Tests path validation business logic
+    #[test]
+    fn test_validate_folder_path_valid_directory() {
+        // Behavior: Valid directory should return Ok(())
+        // Use a known system directory that exists
+        let result = validate_folder_path("/tmp");
+        assert!(result.is_ok(), "Valid directory should be accepted");
+    }
+
+    #[test]
+    fn test_validate_folder_path_nonexistent() {
+        // Behavior: Non-existent path should return descriptive error
+        let result = validate_folder_path("/this/path/does/not/exist/hopefully");
+        assert!(result.is_err(), "Non-existent path should be rejected");
+
+        let error = result.unwrap_err();
+        assert!(
+            error.contains("does not exist") || error.contains("not found"),
+            "Error should indicate path doesn't exist, got: {}", error
+        );
+    }
+
+    #[test]
+    fn test_validate_folder_path_file_not_directory() {
+        // Behavior: File path should be rejected (not a directory)
+        // Create a temporary file for testing
+        let temp_file = std::env::temp_dir().join("moss_test_file.txt");
+        std::fs::write(&temp_file, "test").unwrap();
+
+        let result = validate_folder_path(temp_file.to_str().unwrap());
+
+        // Cleanup
+        let _ = std::fs::remove_file(&temp_file);
+
+        assert!(result.is_err(), "File path should be rejected");
+        let error = result.unwrap_err();
+        assert!(
+            error.contains("not a directory") || error.contains("is a file"),
+            "Error should indicate path is not a directory, got: {}", error
+        );
+    }
+
+    #[test]
+    fn test_validate_folder_path_empty_string() {
+        // Behavior: Empty string should be rejected
+        let result = validate_folder_path("");
+        assert!(result.is_err(), "Empty string should be rejected");
+
+        let error = result.unwrap_err();
+        assert!(
+            error.contains("empty") || error.contains("Empty"),
+            "Error should mention empty path, got: {}", error
+        );
+    }
+
+    #[test]
+    fn test_validate_folder_path_whitespace_only() {
+        // Behavior: Whitespace-only string should be rejected
+        let result = validate_folder_path("   ");
+        assert!(result.is_err(), "Whitespace-only string should be rejected");
+
+        let error = result.unwrap_err();
+        assert!(
+            error.contains("empty") || error.contains("Empty") || error.contains("invalid"),
+            "Error should indicate invalid path, got: {}", error
+        );
+    }
+
+    /// Test suite for generate_preview_window_title
+    /// Tests window title generation business logic
+    #[test]
+    fn test_generate_preview_window_title_multi_component_path() {
+        // Behavior: Should extract last two path components
+        let title = generate_preview_window_title("/Users/test/blog");
+        assert_eq!(title, "website preview of test/blog");
+    }
+
+    #[test]
+    fn test_generate_preview_window_title_single_component() {
+        // Behavior: Single component should show just that component
+        let title = generate_preview_window_title("/single");
+        assert_eq!(title, "website preview of single");
+    }
+
+    #[test]
+    fn test_generate_preview_window_title_deep_path() {
+        // Behavior: Should show only last two components even for deep paths
+        let title = generate_preview_window_title("/a/b/c/d/e");
+        assert_eq!(title, "website preview of d/e");
+    }
+
+    #[test]
+    fn test_generate_preview_window_title_empty_path() {
+        // Behavior: Empty path should show "Unknown"
+        let title = generate_preview_window_title("");
+        assert_eq!(title, "website preview of Unknown");
+    }
+
+    #[test]
+    fn test_generate_preview_window_title_root_path() {
+        // Behavior: Root path should have reasonable fallback
+        let title = generate_preview_window_title("/");
+        assert!(
+            title.contains("Unknown") || title == "website preview of /",
+            "Root path should have reasonable title, got: {}", title
+        );
+    }
+
+    #[test]
+    fn test_generate_preview_window_title_with_spaces() {
+        // Behavior: Should handle paths with spaces
+        let title = generate_preview_window_title("/Users/test/My Documents");
+        assert_eq!(title, "website preview of test/My Documents");
     }
 }

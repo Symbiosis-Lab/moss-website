@@ -44,6 +44,9 @@ notify = "6.1"
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.9"
 accessibility-sys = "0.1"
+objc2 = "0.6"
+objc2-app-kit = "0.3"
+objc2-foundation = "0.3"
 
 [dev-dependencies]
 tokio = { version = "1.0", features = ["rt", "macros"] }
