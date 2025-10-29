@@ -17,20 +17,24 @@
         </nav>
     </header>
 
-    <div class="page-wrapper">
-        <div class="container">
-            <div class="article-header">
-                {breadcrumb}
-            </div>
-            <div class="main-content">
-                <p><span class="date">{formatted_date}</span></p>
-                <article>
-                    {content}
-                </article>
+    <main>
+        <div class="page-wrapper">
+            <div class="container">
+                <div class="article-header">
+                    {breadcrumb}
+                </div>
+                <div class="main-content">
+                    <p><span class="date">{formatted_date}</span></p>
+                    <article>
+                        {content}
+                    </article>
+                </div>
             </div>
         </div>
-    </div>
-    
+    </main>
+
+    {footer}
+
     <script src="../js/theme.js"></script>
 </body>
 </html>

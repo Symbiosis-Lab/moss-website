@@ -351,7 +351,11 @@ github: string | null;
 /**
  * Scripts to inject into <head> section (e.g., analytics)
  */
-head_scripts: string | null }
+head_scripts: string | null; 
+/**
+ * Email subscription form HTML (Google Forms iframe or custom HTML)
+ */
+email_form: string | null }
 /**
  * Metadata extracted from the preview content
  */

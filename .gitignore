@@ -72,5 +72,3 @@ temp/
 # Testing
 .nyc_output
 
-# Local configuration
-.moss/

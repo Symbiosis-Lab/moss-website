@@ -183,6 +183,8 @@ pub struct ParsedDocument {
     pub github: Option<String>,
     /// Scripts to inject into <head> section (e.g., analytics)
     pub head_scripts: Option<String>,
+    /// Email subscription form HTML (Google Forms iframe or custom HTML)
+    pub email_form: Option<String>,
 }
 
 /// State management for tracking active preview servers.

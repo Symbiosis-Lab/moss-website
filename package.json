@@ -13,7 +13,8 @@
     "test:backend": "cd src-tauri && source $HOME/.cargo/env && cargo test",
     "test:all": "npm run test && npm run test:integration",
     "test:coverage": "vitest run --coverage",
-    "generate:type": "cd src-tauri && cargo check"
+    "generate:type": "cd src-tauri && cargo check",
+    "deploy:website": "git subtree push --prefix docs/public/.moss/docs docs-origin main"
   },
   "devDependencies": {
     "@tauri-apps/api": "2.8.0",

@@ -1,6 +1,7 @@
 ---
 github: https://github.com/symbiosis-lab/moss
 head_scripts: '<script defer data-domain="moss.host" src="https://plausible.io/js/script.js"></script>'
+email_form: '<form action="https://formspree.io/f/xwpwbkvw" method="POST"><input type="email" name="email" placeholder="email" required><button type="submit">Subscribe</button></form>'
 ---
 
 # moss

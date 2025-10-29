@@ -145,6 +145,7 @@ pub struct TemplateVars {
     pub breadcrumb: Option<String>,
     pub favicon: Option<String>,
     pub head_scripts: Option<String>,
+    pub footer: Option<String>,
     // Article-specific variables
     pub site_name: Option<String>,
     pub date: Option<String>,
@@ -183,6 +184,7 @@ impl TemplateProcessor {
         result = result.replace("{breadcrumb}", &vars.breadcrumb.unwrap_or_default());
         result = result.replace("{favicon}", &vars.favicon.unwrap_or_default());
         result = result.replace("{head_scripts}", &vars.head_scripts.unwrap_or_default());
+        result = result.replace("{footer}", &vars.footer.unwrap_or_default());
 
         // Article-specific variables
         result = result.replace("{site_name}", &vars.site_name.unwrap_or_default());
@@ -210,6 +212,8 @@ pub struct FrontMatter {
     pub github: Option<String>,
     /// Scripts to inject into <head> section (e.g., analytics)
     pub head_scripts: Option<String>,
+    /// Email subscription form HTML (Google Forms iframe or custom HTML)
+    pub email_form: Option<String>,
 }
 
 /// Generates a static website from scanned folder contents.
@@ -309,6 +313,19 @@ pub fn generate_static_site(source_path: &str, project_structure: &ProjectStruct
             .and_then(|d| d.head_scripts.as_ref())
             .map(|s| s.as_str());
 
+        // Generate global footer for topic pages
+        let footer_html = homepage_doc
+            .and_then(|d| d.email_form.as_ref())
+            .map(|form| format!(
+                r#"<footer class="container">
+    <div class="footer-content">
+        <div class="email-subscription">{}</div>
+    </div>
+</footer>"#,
+                form
+            ))
+            .or_else(|| Some(String::from("<footer></footer>")));
+
         for topic in all_topics {
             let topic_content = generate_topic_page_content(&topic, &documents, project_structure);
             let path_resolver = PathResolver::new(1); // Topics are at depth 1
@@ -331,6 +348,7 @@ pub fn generate_static_site(source_path: &str, project_structure: &ProjectStruct
                     None
                 },
                 head_scripts: head_scripts.map(|s| s.to_string()),
+                footer: footer_html.clone(),
                 // Article-specific variables (not used for topics)
                 site_name: None,
                 date: None,
@@ -362,6 +380,19 @@ pub fn generate_static_site(source_path: &str, project_structure: &ProjectStruct
         let head_scripts = homepage_doc
             .and_then(|d| d.head_scripts.as_ref())
             .map(|s| s.as_str());
+
+        // Generate global footer for collection pages
+        let footer_html = homepage_doc
+            .and_then(|d| d.email_form.as_ref())
+            .map(|form| format!(
+                r#"<footer class="container">
+    <div class="footer-content">
+        <div class="email-subscription">{}</div>
+    </div>
+</footer>"#,
+                form
+            ))
+            .or_else(|| Some(String::from("<footer></footer>")));
 
         for folder_name in &project_structure.content_folders {
             // Find all documents in this collection
@@ -398,6 +429,7 @@ pub fn generate_static_site(source_path: &str, project_structure: &ProjectStruct
                         None
                     },
                     head_scripts: head_scripts.map(|s| s.to_string()),
+                    footer: footer_html.clone(),
                     // Article-specific variables (not used for collection index)
                     site_name: None,
                     date: None,
@@ -624,6 +656,9 @@ pub fn process_markdown_file(file_path: &str, content: &str) -> Result<ParsedDoc
     // Extract head scripts from frontmatter
     let head_scripts = frontmatter.head_scripts;
 
+    // Extract email subscription form from frontmatter
+    let email_form = frontmatter.email_form;
+
     // Calculate reading time (200 words per minute)
     let word_count = result.content.split_whitespace().count();
     let reading_time = std::cmp::max(1, (word_count / 200) as u32);
@@ -653,6 +688,7 @@ pub fn process_markdown_file(file_path: &str, content: &str) -> Result<ParsedDoc
         weight,
         github,
         head_scripts,
+        email_form,
     })
 }
 
@@ -679,6 +715,19 @@ pub fn generate_html(
     let head_scripts = homepage_doc
         .and_then(|d| d.head_scripts.as_ref())
         .map(|s| s.as_str());
+
+    // Generate global footer HTML with email subscription form
+    let footer_html = homepage_doc
+        .and_then(|d| d.email_form.as_ref())
+        .map(|form| format!(
+            r#"<footer class="container">
+    <div class="footer-content">
+        <div class="email-subscription">{}</div>
+    </div>
+</footer>"#,
+            form
+        ))
+        .or_else(|| Some(String::from("<footer></footer>")));
 
     // Calculate depth for path adjustments
     let depth = doc.map(|d| d.url_path.matches('/').count()).unwrap_or(0);
@@ -811,6 +860,7 @@ pub fn generate_html(
             None
         },
         head_scripts: head_scripts.map(|s| s.to_string()),
+        footer: footer_html,
         // Article-specific variables
         site_name: if is_article_page { Some(site_title.clone()) } else { None },
         date: if is_article_page && doc.is_some() { doc.unwrap().date.clone() } else { None },

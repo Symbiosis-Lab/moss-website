@@ -194,7 +194,12 @@ pub fn scan_folder(folder_path: &str) -> Result<ProjectStructure, String> {
     let mut other_files = Vec::new();
     
     // Walk through the directory recursively
-    for entry in WalkDir::new(path).into_iter() {
+    for entry in WalkDir::new(path)
+        .into_iter()
+        .filter_entry(|e| {
+            // Skip .moss directory to avoid scanning generated output
+            e.file_name() != ".moss"
+        }) {
         let entry = match entry {
             Ok(entry) => entry,
             Err(e) => {
@@ -203,7 +208,7 @@ pub fn scan_folder(folder_path: &str) -> Result<ProjectStructure, String> {
                 continue;
             }
         };
-        
+
         // Skip directories, only process files
         if !entry.file_type().is_file() {
             continue;
